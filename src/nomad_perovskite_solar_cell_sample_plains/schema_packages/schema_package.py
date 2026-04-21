@@ -32,14 +32,25 @@ from baseclasses.solar_energy.mpp_tracking import MPPTracking      # same patter
 m_package = SchemaPackage()
 
 class PerformedMeasurements(ArchiveSection):
-    """
-    Embedded measurement summaries. Each list is populated by the
-    normalize() of the corresponding measurement entry.
-    Uses baseclasses result sections — no tandem dependency.
-    """
-    jv = SubSection(section_def=SolarCellJV, repeats=True)
-    eqe = SubSection(section_def=SolarCellEQE, repeats=True)
+    jv        = SubSection(section_def=SolarCellJV,       repeats=True)
+    eqe       = SubSection(section_def=SolarCellEQE,      repeats=True)
     stability = SubSection(section_def=MPPTracking, repeats=True)
+
+    _DISPATCH: dict[type, str] = {
+        SolarCellJV:        'jv',
+        SolarCellEQE:       'eqe',
+        MPPTracking:     'stability',
+    }
+
+    def register(self, result: ArchiveSection, logger) -> None:
+        target = self._DISPATCH.get(type(result))
+        if target is None:
+            logger.warning(
+                f'PerformedMeasurements.register: unregistered type '
+                f'{type(result).__name__}, skipping.'
+            )
+            return
+        getattr(self, target).append(result)
 
 
 class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
@@ -47,37 +58,34 @@ class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
     performed_measurements = SubSection(section_def=PerformedMeasurements)
 
     def normalize(self, archive, logger):
+        self.performed_measurements = self.performed_measurements or PerformedMeasurements()
         super().normalize(archive, logger)
 
 
 class PVKMeasurementBase(EntryData):
-    """
-    Minimal abstract base. Does NOT inherit baseclasses.BaseMeasurement here —
-    that happens in the lab plugin subclasses, which brings in the full
-    SolarCellBaseMeasurement chain including its `samples` subsection.
-
-    This class only defines the reference to PerovskiteSolarCellSample
-    and the self-registration contract.
-    """
     m_def = Section(abstract=True)
 
     pvk_sample = Quantity(
         type=Reference(PerovskiteSolarCellSample.m_def),
-        description='The PerovskiteSolarCellSample this measurement belongs to.',
         a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
     )
 
     def normalize(self, archive, logger):
-        super().normalize(archive, logger)
+        if archive is not None:
+            super().normalize(archive, logger)
+
         if self.pvk_sample is None:
             logger.warning(f'{self.__class__.__name__}: no pvk_sample set.')
             return
-        if self.pvk_sample.performed_measurements is None:
-            self.pvk_sample.performed_measurements = PerformedMeasurements()
-        self._register_into_sample(self.pvk_sample.performed_measurements, logger)
 
-    def _register_into_sample(self, performed: PerformedMeasurements, logger):
-        raise NotImplementedError
+        result = self._build_result(logger)
+        if result is not None:
+            self.pvk_sample.performed_measurements.register(result, logger)
+
+    def _build_result(self, logger):
+        """Override in subclass. Return the result object to register,
+        or None to skip registration."""
+        return None
 
 
 m_package.__init_metainfo__()
