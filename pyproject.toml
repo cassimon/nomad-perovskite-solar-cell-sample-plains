@@ -10,7 +10,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    
+
 ]
 name = "nomad-perovskite-solar-cell-sample-plains"
 description = "An adaptation of the perovksite solar cell database schema for measurements and plains software"
@@ -25,7 +25,9 @@ maintainers = [
 ]
 license = { file = "LICENSE" }
 dependencies = [
-    "nomad-lab>=1.4.1"
+    "nomad-lab>=1.4.1",
+    "nomad-baseclasses @ git+https://github.com/nomad-hzb/nomad-baseclasses.git@main",
+    "perovskite-solar-cell-database @ git+https://github.com/FAIRmat-NFDI/nomad-perovskite-solar-cells-database.git@v1.0.0"
 ]
 
 [project.urls]
@@ -47,7 +49,7 @@ dev = [
 extra-index-url = [
   "https://gitlab.mpcdf.mpg.de/api/v4/projects/2187/packages/pypi/simple",
 ]
-    
+
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
