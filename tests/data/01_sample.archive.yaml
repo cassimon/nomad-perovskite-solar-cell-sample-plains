@@ -1,0 +1,5 @@
+data:
+  m_def: pvk_sample_schema.schema.PerovskiteSolarCellSample
+  name: Test perovskite cell
+  lab_id: PVK-TEST-001
+  architecture: pin

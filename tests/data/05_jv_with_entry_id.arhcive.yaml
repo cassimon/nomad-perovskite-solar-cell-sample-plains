@@ -1,0 +1,6 @@
+# 05_jv_with_entry_id.archive.yaml  — Mode A, entry_id set explicitly
+data:
+  m_def: nomad_chose.schema.JVMeasurement
+  pvk_sample:
+    reference: '../uploads/TEST_UPLOAD/archive/ENTRY_ID_PLACEHOLDER#/data'
+  operator: Carol

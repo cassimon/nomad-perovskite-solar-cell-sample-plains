@@ -1,0 +1,6 @@
+# 02_jv_forward.archive.yaml
+data:
+  m_def: lab_plugin.schema.LabJVMeasurement
+  pvk_sample_id: PVK-TEST-001          # Mode B — human readable
+  operator: Alice
+  instrument_id: JV-Setup-1

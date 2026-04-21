@@ -11,6 +11,24 @@ from nomad_perovskite_solar_cell_sample_plains.schema_packages.schema_package im
     PerformedMeasurements,
 )
 
+from nomad_perovskite_solar_cell_sample_plains.schema_packages.schema_package import SolarCellJV
+from baseclasses.solar_energy.eqemeasurement import SolarCellEQE
+from baseclasses.solar_energy.eqemeasurement import SolarCellEQE
+from baseclasses.solar_energy.mpp_tracking  import MPPTracking
+
+#To be replaced with actual imports when the chose plugin is available
+class JVMeasurement(PVKMeasurementBase):
+    m_def = Section(label='JVMeasurement')
+    def _build_result(self, logger): return SolarCellJV()
+
+class EQEMeasurement(PVKMeasurementBase):
+    m_def = Section(label='EQEMeasurement')
+    def _build_result(self, logger): return SolarCellEQE()
+
+class MPPMeasurement(PVKMeasurementBase):
+    m_def = Section(label='MPPMeasurement')
+    def _build_result(self, logger): return MPPTracking()
+
 
 def test_perovskite_sample_m_def_label():
     assert PerovskiteSolarCellSample.m_def.label == "Perovskite Solar Cell Sample"
@@ -27,97 +45,282 @@ class DummyLogger:
         self.messages.append(('error', msg))
 
 
-class ConcreteMeasurement(PVKMeasurementBase):
-    m_def = Section(label='ConcreteMeasurement')
+# ── Shared patch helper ───────────────────────────────────────────────────────
+# Patches the first base of PVKMeasurementBase (EntryData) so NOMAD
+# internals don't run. All tests use this.
 
-    def _register_into_sample(self, performed: PerformedMeasurements, logger):
-        performed._registered = getattr(performed, '_registered', 0) + 1
+def _patched_normalize(meas, archive, logger):
+    with patch.object(PVKMeasurementBase.__bases__[0], 'normalize', return_value=None):
+        meas.normalize(archive, logger)
 
-
-def test_pvk_measurement_normalize_registration():
-    logger = DummyLogger()
-
-    # Minimal archive stub — satisfies NOMAD base normalize() calls
+def _make_archive(sample=None):
+    """Minimal archive stub. Optionally pre-loads a sample as the context."""
     archive = MagicMock()
     archive.metadata = MagicMock()
     archive.results  = MagicMock()
-    archive.m_context = None   # prevents context-based resolution attempts
+    archive.m_context = None
+    return archive
 
+
+# ── Test 1: no pvk_sample → warning, no crash ────────────────────────────────
+
+class ConcreteMeasurement(PVKMeasurementBase):
+    m_def = Section(label='ConcreteMeasurement')
+
+    def _build_result(self, logger):
+        # Returns a registered type so dispatch would succeed if sample existed
+        return SolarCellJV()
+
+
+def test_no_pvk_sample_logs_warning():
+    logger = DummyLogger()
     meas = ConcreteMeasurement()
-
-    # ── Case 1: no pvk_sample → warning, no crash ───────────────────────────
     meas.pvk_sample = None
 
-    # Patch super().normalize() to be a no-op so NOMAD internals don't run.
-    # We are only testing OUR normalize() logic here, not NOMAD's.
-    with patch.object(PVKMeasurementBase.__bases__[0], 'normalize', return_value=None):
-        meas.normalize(archive, logger)
+    _patched_normalize(meas, None, logger)
 
     assert any(
         'no pvk_sample' in m[1]
         for m in logger.messages if m[0] == 'warning'
     )
 
-    # ── Case 2: pvk_sample set → performed_measurements created ─────────────
-    sample = PerovskiteSolarCellSample()
-    meas.pvk_sample = sample
-    logger = DummyLogger()
 
-    with patch.object(PVKMeasurementBase.__bases__[0], 'normalize', return_value=None):
-        meas.normalize(archive, logger)
+# ── Test 2: pvk_sample set → PerformedMeasurements created and result registered
+
+def test_performed_measurements_created_and_registered():
+    logger = DummyLogger()
+    sample = PerovskiteSolarCellSample()
+    meas = ConcreteMeasurement()
+    meas.pvk_sample = sample
+
+    _patched_normalize(meas, None, logger)
 
     assert isinstance(sample.performed_measurements, PerformedMeasurements)
-    assert getattr(sample.performed_measurements, '_registered', 0) == 1
+    # ConcreteMeasurement returns SolarCellJV → lands in .jv[]
+    assert len(sample.performed_measurements.jv) == 1
+    assert isinstance(sample.performed_measurements.jv[0], SolarCellJV)
 
 
-def test_performed_measurements_category_lists():
-    """Verify different measurement types register into their respective lists."""
+# ── Test 3: None returned from _build_result → nothing registered, no crash ──
+
+class NullMeasurement(PVKMeasurementBase):
+    m_def = Section(label='NullMeasurement')
+    # _build_result not overridden → returns None by default
+
+
+def test_none_result_skips_registration():
     logger = DummyLogger()
+    sample = PerovskiteSolarCellSample()
+    meas = NullMeasurement()
+    meas.pvk_sample = sample
 
-    class JVMeasurement(PVKMeasurementBase):
-        m_def = Section(label='JVMeasurement')
+    _patched_normalize(meas, None, logger)
 
-        def _register_into_sample(self, performed: PerformedMeasurements, logger):
-            performed.jv = getattr(performed, 'jv', [])
-            performed.jv.append('JV1')
+    # PerformedMeasurements is still created but all lists are empty
+    assert isinstance(sample.performed_measurements, PerformedMeasurements)
+    assert len(sample.performed_measurements.jv) == 0
+    assert len(sample.performed_measurements.eqe) == 0
 
-    class EQEMeasurement(PVKMeasurementBase):
-        m_def = Section(label='EQEMeasurement')
 
-        def _register_into_sample(self, performed: PerformedMeasurements, logger):
-            performed.eqe = getattr(performed, 'eqe', [])
-            performed.eqe.append('EQE1')
+# ── Test 4: unregistered type → warning from register(), no crash ─────────────
 
-    class StabilityMeasurement(PVKMeasurementBase):
-        m_def = Section(label='StabilityMeasurement')
+class UnregisteredSection(MagicMock):
+    pass
 
-        def _register_into_sample(self, performed: PerformedMeasurements, logger):
-            performed.stability = getattr(performed, 'stability', [])
-            performed.stability.append('STAB1')
 
+class UnregisteredMeasurement(PVKMeasurementBase):
+    m_def = Section(label='UnregisteredMeasurement')
+
+    def _build_result(self, logger):
+        return UnregisteredSection()
+
+
+def test_unregistered_type_logs_warning():
+    logger = DummyLogger()
+    sample = PerovskiteSolarCellSample()
+    meas = UnregisteredMeasurement()
+    meas.pvk_sample = sample
+
+    _patched_normalize(meas, None, logger)
+
+    assert any(
+        'unregistered type' in m[1]
+        for m in logger.messages if m[0] == 'warning'
+    )
+
+
+# ── Test 5: each type routes to the correct list ─────────────────────────────
+
+class ConcreteJV(PVKMeasurementBase):
+    m_def = Section(label='ConcreteJV')
+    def _build_result(self, logger): return SolarCellJV()
+
+
+class ConcreteEQE(PVKMeasurementBase):
+    m_def = Section(label='ConcreteEQE')
+    def _build_result(self, logger): return SolarCellEQE()
+
+
+class ConcreteStability(PVKMeasurementBase):
+    m_def = Section(label='ConcreteStability')
+    def _build_result(self, logger): return MPPTracking()
+
+
+def test_dispatch_routes_to_correct_lists():
+    logger = DummyLogger()
     sample = PerovskiteSolarCellSample()
 
-    # create and register one of each
-    with patch.object(PVKMeasurementBase.__bases__[0], 'normalize', return_value=None):
-        JVMeasurement().__setattr__('pvk_sample', sample) or JVMeasurement().normalize(None, logger)
-    # Re-create instance to avoid state carry-over
-    jm = JVMeasurement()
-    jm.pvk_sample = sample
-    with patch.object(PVKMeasurementBase.__bases__[0], 'normalize', return_value=None):
-        jm.normalize(None, logger)
-
-    em = EQEMeasurement()
-    em.pvk_sample = sample
-    with patch.object(PVKMeasurementBase.__bases__[0], 'normalize', return_value=None):
-        em.normalize(None, logger)
-
-    sm = StabilityMeasurement()
-    sm.pvk_sample = sample
-    with patch.object(PVKMeasurementBase.__bases__[0], 'normalize', return_value=None):
-        sm.normalize(None, logger)
+    for cls in (ConcreteJV, ConcreteEQE, ConcreteStability):
+        meas = cls()
+        meas.pvk_sample = sample
+        _patched_normalize(meas, None, logger)
 
     performed = sample.performed_measurements
     assert performed is not None
-    assert getattr(performed, 'jv', []) == ['JV1', 'JV1'] or len(getattr(performed, 'jv', [])) >= 1
-    assert getattr(performed, 'eqe', []) == ['EQE1']
-    assert getattr(performed, 'stability', []) == ['STAB1']
+    assert len(performed.jv) == 1
+    assert len(performed.eqe) == 1
+    assert len(performed.stability) == 1
+    assert isinstance(performed.jv[0], SolarCellJV)
+    assert isinstance(performed.eqe[0], SolarCellEQE)
+    assert isinstance(performed.stability[0], MPPTracking)
+
+
+# ── Test 6: multiple measurements of same type accumulate ────────────────────
+
+def test_multiple_jv_measurements_accumulate():
+    logger = DummyLogger()
+    sample = PerovskiteSolarCellSample()
+
+    for _ in range(3):
+        meas = ConcreteJV()
+        meas.pvk_sample = sample
+        _patched_normalize(meas, None, logger)
+
+    assert len(sample.performed_measurements.jv) == 3
+
+
+def test_five_yaml_upload_scenario():
+    """
+    Simulates uploading:
+      File 1 — PerovskiteSolarCellSample  (lab_id = PVK-TEST-001)
+      File 2 — LabJVMeasurement           (pvk_sample_id = PVK-TEST-001)
+      File 3 — LabJVMeasurement           (pvk_sample_id = PVK-TEST-001)
+      File 4 — LabEQEMeasurement          (pvk_sample_id = PVK-TEST-001)
+      File 5 — LabJVMeasurement           (pvk_sample direct reference, Mode A)
+
+    The sample is parsed first and its Python object is reused as the
+    resolved reference — this is what NOMAD's context does in production.
+    We mock _resolve_sample to inject the sample object directly,
+    isolating the registration logic from the NOMAD search infrastructure.
+    """
+    logger = DummyLogger()
+
+    # ── File 1: sample parsed first ─────────────────────────────────────────
+    sample = PerovskiteSolarCellSample()
+    sample.lab_id = 'PVK-TEST-001'
+    sample.name   = 'Test perovskite cell'
+
+    # ── Files 2–4: pvk_sample_id mode (Mode B) ──────────────────────────────
+    # _resolve_sample would normally do a NOMAD search; we patch it to
+    # directly inject the sample object, as the context would after
+    # File 1 has been processed.
+
+    def inject_sample(meas):
+        """Simulate _resolve_sample finding the sample by lab_id."""
+        def _resolve(archive, logger):
+            if meas.pvk_sample is None and meas.pvk_sample_id == 'PVK-TEST-001':
+                meas.pvk_sample = sample
+        return _resolve
+
+    measurements_mode_b = [
+        JVMeasurement(),   # file 2
+        JVMeasurement(),   # file 3
+        EQEMeasurement(),  # file 4
+    ]
+    for m in measurements_mode_b:
+        m.pvk_sample_id = 'PVK-TEST-001'
+
+    for meas in measurements_mode_b:
+        with patch.object(meas, '_resolve_sample', side_effect=inject_sample(meas)):
+            _patched_normalize(meas, _make_archive(), logger)
+
+    # ── File 5: direct entry_id reference (Mode A) ──────────────────────────
+    jv_mode_a = JVMeasurement()
+    jv_mode_a.pvk_sample = sample   # reference pre-set, _resolve_sample is no-op
+
+    _patched_normalize(jv_mode_a, _make_archive(), logger)
+
+    # ── Assertions ───────────────────────────────────────────────────────────
+    performed = sample.performed_measurements
+    assert performed is not None, 'performed_measurements was never created'
+
+    # 3 JV measurements (files 2, 3, 5) + 1 EQE (file 4)
+    assert len(performed.jv) == 3, (
+        f'Expected 3 JV entries, got {len(performed.jv)}'
+    )
+    assert len(performed.eqe) == 1, (
+        f'Expected 1 EQE entry, got {len(performed.eqe)}'
+    )
+    assert all(isinstance(j, SolarCellJV)  for j in performed.jv)
+    assert all(isinstance(e, SolarCellEQE) for e in performed.eqe)
+
+    # No warnings about missing pvk_sample
+    missing_warnings = [
+        m for m in logger.messages
+        if m[0] == 'warning' and 'no pvk_sample' in m[1]
+    ]
+    assert missing_warnings == [], f'Unexpected warnings: {missing_warnings}'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test: _resolve_sample falls back gracefully when lab_id not found
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_resolve_sample_unknown_id_logs_warning():
+    logger = DummyLogger()
+    meas = JVMeasurement()
+    meas.pvk_sample_id = 'DOES-NOT-EXIST'
+
+    # archive has a context but search returns nothing
+    archive = _make_archive()
+    archive.m_context = MagicMock()
+
+    with patch('nomad_perovskite_solar_cell_sample_plains.schema_packages.schema_package.search') as mock_search:
+        mock_search.return_value = MagicMock(
+            pagination=MagicMock(total=0), data=[]
+        )
+        _patched_normalize(meas, archive, logger)
+
+    assert any(
+        'no sample found' in m[1]
+        for m in logger.messages if m[0] == 'warning'
+    )
+    assert meas.pvk_sample is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test: pvk_sample takes precedence over pvk_sample_id (Mode A wins)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_direct_reference_takes_precedence_over_id():
+    logger = DummyLogger()
+    sample = PerovskiteSolarCellSample()
+
+    meas = JVMeasurement()
+    meas.pvk_sample    = sample           # Mode A — direct ref
+    meas.pvk_sample_id = 'PVK-TEST-001'  # Mode B — also set, should be ignored
+
+    resolve_called = []
+
+    original_resolve = meas._resolve_sample
+
+    def tracking_resolve(archive, logger):
+        resolve_called.append(True)
+        original_resolve(archive, logger)
+
+    with patch.object(meas, '_resolve_sample', side_effect=tracking_resolve):
+        _patched_normalize(meas, _make_archive(), logger)
+
+    # _resolve_sample was called but pvk_sample was unchanged (not overwritten)
+    assert meas.pvk_sample is sample
+    assert len(sample.performed_measurements.jv) == 1
