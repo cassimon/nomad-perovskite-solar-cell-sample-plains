@@ -5,13 +5,13 @@ from nomad.metainfo import Section
 from unittest.mock import MagicMock, patch
 from nomad.metainfo import Section
 
-from nomad_perovskite_solar_cell_sample_plains.schema_packages.schema_package import (
+from nomad_perovskite_solar_cell_sample_plains.schema_packages.sample import (
     PerovskiteSolarCellSample,
     PVKMeasurementBase,
     PerformedMeasurements,
 )
 
-from nomad_perovskite_solar_cell_sample_plains.schema_packages.schema_package import SolarCellJV
+from nomad_perovskite_solar_cell_sample_plains.schema_packages.sample import SolarCellJV
 from baseclasses.solar_energy.eqemeasurement import SolarCellEQE
 from baseclasses.solar_energy.eqemeasurement import SolarCellEQE
 from baseclasses.solar_energy.mpp_tracking  import MPPTracking
@@ -49,10 +49,6 @@ class DummyLogger:
 # Patches the first base of PVKMeasurementBase (EntryData) so NOMAD
 # internals don't run. All tests use this.
 
-def _patched_normalize(meas, archive, logger):
-    with patch.object(PVKMeasurementBase.__bases__[0], 'normalize', return_value=None):
-        meas.normalize(archive, logger)
-
 def _make_archive(sample=None):
     """Minimal archive stub. Optionally pre-loads a sample as the context."""
     archive = MagicMock()
@@ -77,7 +73,7 @@ def test_no_pvk_sample_logs_warning():
     meas = ConcreteMeasurement()
     meas.pvk_sample = None
 
-    _patched_normalize(meas, None, logger)
+    meas.normalize(None, logger)
 
     assert any(
         'no pvk_sample' in m[1]
@@ -93,7 +89,7 @@ def test_performed_measurements_created_and_registered():
     meas = ConcreteMeasurement()
     meas.pvk_sample = sample
 
-    _patched_normalize(meas, None, logger)
+    meas.normalize(None, logger)
 
     assert isinstance(sample.performed_measurements, PerformedMeasurements)
     # ConcreteMeasurement returns SolarCellJV → lands in .jv[]
@@ -114,7 +110,7 @@ def test_none_result_skips_registration():
     meas = NullMeasurement()
     meas.pvk_sample = sample
 
-    _patched_normalize(meas, None, logger)
+    meas.normalize(None, logger)
 
     # PerformedMeasurements is still created but all lists are empty
     assert isinstance(sample.performed_measurements, PerformedMeasurements)
@@ -141,7 +137,7 @@ def test_unregistered_type_logs_warning():
     meas = UnregisteredMeasurement()
     meas.pvk_sample = sample
 
-    _patched_normalize(meas, None, logger)
+    meas.normalize(None, logger)
 
     assert any(
         'unregistered type' in m[1]
@@ -173,7 +169,7 @@ def test_dispatch_routes_to_correct_lists():
     for cls in (ConcreteJV, ConcreteEQE, ConcreteStability):
         meas = cls()
         meas.pvk_sample = sample
-        _patched_normalize(meas, None, logger)
+        meas.normalize(None, logger)
 
     performed = sample.performed_measurements
     assert performed is not None
@@ -194,7 +190,7 @@ def test_multiple_jv_measurements_accumulate():
     for _ in range(3):
         meas = ConcreteJV()
         meas.pvk_sample = sample
-        _patched_normalize(meas, None, logger)
+        meas.normalize(None, logger)
 
     assert len(sample.performed_measurements.jv) == 3
 
@@ -212,6 +208,9 @@ def test_five_yaml_upload_scenario():
     resolved reference — this is what NOMAD's context does in production.
     We mock _resolve_sample to inject the sample object directly,
     isolating the registration logic from the NOMAD search infrastructure.
+
+    This test does not use the example YAML files, but the scenario is inspired by real uploads and the test files can be used for manual testing if desired.
+
     """
     logger = DummyLogger()
 
@@ -242,13 +241,13 @@ def test_five_yaml_upload_scenario():
 
     for meas in measurements_mode_b:
         with patch.object(meas, '_resolve_sample', side_effect=inject_sample(meas)):
-            _patched_normalize(meas, _make_archive(), logger)
+            meas.normalize(_make_archive(), logger)
 
     # ── File 5: direct entry_id reference (Mode A) ──────────────────────────
     jv_mode_a = JVMeasurement()
     jv_mode_a.pvk_sample = sample   # reference pre-set, _resolve_sample is no-op
 
-    _patched_normalize(jv_mode_a, _make_archive(), logger)
+    jv_mode_a.normalize(_make_archive(), logger)
 
     # ── Assertions ───────────────────────────────────────────────────────────
     performed = sample.performed_measurements
@@ -285,11 +284,11 @@ def test_resolve_sample_unknown_id_logs_warning():
     archive = _make_archive()
     archive.m_context = MagicMock()
 
-    with patch('nomad_perovskite_solar_cell_sample_plains.schema_packages.schema_package.search') as mock_search:
+    with patch('nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.search') as mock_search:
         mock_search.return_value = MagicMock(
             pagination=MagicMock(total=0), data=[]
         )
-        _patched_normalize(meas, archive, logger)
+        meas.normalize(archive, logger)
 
     assert any(
         'no sample found' in m[1]
@@ -319,7 +318,7 @@ def test_direct_reference_takes_precedence_over_id():
         original_resolve(archive, logger)
 
     with patch.object(meas, '_resolve_sample', side_effect=tracking_resolve):
-        _patched_normalize(meas, _make_archive(), logger)
+        meas.normalize(_make_archive(), logger)
 
     # _resolve_sample was called but pvk_sample was unchanged (not overwritten)
     assert meas.pvk_sample is sample

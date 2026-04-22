@@ -59,6 +59,13 @@ class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
     m_def = Section(label='Perovskite Solar Cell Sample')
     performed_measurements = SubSection(section_def=PerformedMeasurements)
 
+    complete_device = Quantity(
+        type=bool,
+        shape=[],
+        description='Tag to quickly identify complete devices (with all layers) vs. partial samples',
+        a_eln=dict(component='BoolEditQuantity'),
+    )
+
     def normalize(self, archive, logger):
         super().normalize(archive, logger)
 

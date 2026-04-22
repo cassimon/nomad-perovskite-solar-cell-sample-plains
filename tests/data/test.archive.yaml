@@ -1,2 +1,2 @@
 data:
-  m_def: nomad_perovskite_solar_cell_sample_plains.schema_packages.schema_package.PerovskiteSolarCellSample
+  m_def: nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.PerovskiteSolarCellSample

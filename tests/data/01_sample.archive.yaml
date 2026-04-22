@@ -3,3 +3,4 @@ data:
   name: Test perovskite cell
   lab_id: PVK-TEST-001
   architecture: pin
+  completed_device: true
