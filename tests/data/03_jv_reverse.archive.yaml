@@ -1,6 +1,0 @@
-# 03_jv_reverse.archive.yaml
-data:
-  m_def: lab_plugin.schema.LabJVMeasurement
-  pvk_sample_id: PVK-TEST-001
-  operator: Bob
-  instrument_id: JV-Setup-1

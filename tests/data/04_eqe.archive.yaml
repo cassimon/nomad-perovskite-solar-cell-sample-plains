@@ -1,5 +1,0 @@
-# 04_eqe.archive.yaml
-data:
-  m_def: lab_plugin.schema.LabEQEMeasurement
-  pvk_sample_id: PVK-TEST-001
-  operator: Alice
