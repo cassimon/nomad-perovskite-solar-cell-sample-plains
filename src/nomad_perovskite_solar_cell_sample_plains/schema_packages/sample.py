@@ -42,7 +42,7 @@ class PerformedMeasurements(ArchiveSection):
     """
     jv = SubSection(section_def=SolarCellJV, repeats=True)
     eqe = SubSection(section_def=SolarCellEQE, repeats=True)
-    stability = SubSection(section_def=SolarCellStability, repeats=True)
+    stability = SubSection(section_def=MPPTracking, repeats=True)
 
 
 class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
