@@ -26,7 +26,7 @@ maintainers = [
 license = { file = "LICENSE" }
 dependencies = [
     "nomad-lab>=1.4.1",
-    "nomad-baseclasses @ git+https://github.com/nomad-hzb/nomad-baseclasses.git@main",
+    "nomad-baseclasses @ git+https://github.com/nomad-hzb/nomad-baseclasses.git@6ad81b3a82e5c02a4943dc213430d91538362df9",
     "perovskite-solar-cell-database @ git+https://github.com/FAIRmat-NFDI/nomad-perovskite-solar-cells-database.git@v1.0.0"
 ]
 
