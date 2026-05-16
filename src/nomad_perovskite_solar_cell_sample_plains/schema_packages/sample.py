@@ -27,8 +27,8 @@ configuration = config.get_plugin_entry_point(
 from perovskite_solar_cell_database.schema import PerovskiteSolarCell
 
 # baseclasses solar energy measurement sections — no tandem anywhere
-from baseclasses.solar_energy.jvmeasurement import SolarCellJV
-from baseclasses.solar_energy.eqemeasurement import SolarCellEQE      # same pattern
+from baseclasses.solar_energy.jvmeasurement import JVMeasurement
+from baseclasses.solar_energy.eqemeasurement import EQEMeasurement     # same pattern
 from baseclasses.solar_energy.mpp_tracking import MPPTracking      # same pattern
 
 m_package = SchemaPackage()
@@ -36,12 +36,12 @@ m_package = SchemaPackage()
 class PerformedMeasurements(ArchiveSection):
     """
     Embedded scalar summaries — no references back to measurement entries.
-    This avoids cycles. Each SolarCellJV item carries a data_file
+    This avoids cycles. Each JVMeasurement item carries a data_file
     quantity (inherited from baseclasses) which links the raw file.
     The measurement entry separately holds pvk_sample → sample reference.
     """
-    jv = SubSection(section_def=SolarCellJV, repeats=True)
-    eqe = SubSection(section_def=SolarCellEQE, repeats=True)
+    jv = SubSection(section_def=JVMeasurement, repeats=True)
+    eqe = SubSection(section_def=EQEMeasurement, repeats=True)
     stability = SubSection(section_def=MPPTracking, repeats=True)
 
 
