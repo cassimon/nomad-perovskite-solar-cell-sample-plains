@@ -33,17 +33,6 @@ from baseclasses.solar_energy.mpp_tracking import MPPTracking      # same patter
 
 m_package = SchemaPackage()
 
-class PerformedMeasurements(ArchiveSection):
-    """
-    Embedded scalar summaries — no references back to measurement entries.
-    This avoids cycles. Each JVMeasurement item carries a data_file
-    quantity (inherited from baseclasses) which links the raw file.
-    The measurement entry separately holds pvk_sample → sample reference.
-    """
-    jv = SubSection(section_def=JVMeasurement, repeats=True)
-    eqe = SubSection(section_def=EQEMeasurement, repeats=True)
-    stability = SubSection(section_def=MPPTracking, repeats=True)
-
 
 class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
     m_def = Section(
@@ -54,7 +43,6 @@ class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
             )
         ),
     )
-    performed_measurements = SubSection(section_def=PerformedMeasurements)
 
     def normalize(self, archive, logger):
         super().normalize(archive, logger)
