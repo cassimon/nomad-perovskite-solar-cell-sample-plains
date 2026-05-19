@@ -13,9 +13,21 @@ if TYPE_CHECKING:
 
 from nomad.config import config
 from nomad.datamodel.data import EntryData, ArchiveSection
-from nomad.datamodel.metainfo.basesections import Entity
+from nomad.datamodel.metainfo.basesections import (
+    Entity,
+    Process,
+    CompositeSystem,
+)
 from nomad.datamodel.metainfo.annotations import ELNAnnotation
-from nomad.metainfo import Quantity, Reference, Section, SubSection, SchemaPackage
+from nomad.metainfo import (
+    Datetime,
+    MEnum,
+    Quantity,
+    Reference,
+    Section,
+    SubSection,
+    SchemaPackage,
+)
 from nomad.search import search
 from nomad.app.v1.models import MetadataPagination
 
@@ -24,7 +36,7 @@ configuration = config.get_plugin_entry_point(
 )
 
 
-from perovskite_solar_cell_database.schema import PerovskiteSolarCell
+from perovskite_solar_cell_database.schema import PerovskiteSolarCell, Substrate
 
 # baseclasses solar energy measurement sections — no tandem anywhere
 from baseclasses.solar_energy.jvmeasurement import JVMeasurement
@@ -34,18 +46,269 @@ from baseclasses.solar_energy.mpp_tracking import MPPTracking
 m_package = SchemaPackage()
 
 
+# ── Material / Solution used in a deposition step ────────────────────────────
+
+class DepositedMaterial(ArchiveSection):
+    """
+    A material or solution applied during a deposition step.
+    Kept as a descriptive ArchiveSection — for a full lab entity
+    (e.g. a prepared solution batch) use a separate SolutionEntity
+    and reference it here.
+    """
+    name = Quantity(
+        type=str,
+        description='Name of the material or solution, e.g. "MAPbI3 in DMF/DMSO".',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    concentration = Quantity(
+        type=float,
+        unit='mol/l',
+        description='Concentration of the solution if applicable.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='mol/l',
+        ),
+    )
+    supplier = Quantity(
+        type=str,
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+
+
+# ── Abstract base for all deposition steps ───────────────────────────────────
+
+STEP_TYPES = MEnum(
+    'Wet Deposition',
+    'Dry Deposition',
+    'Surface Modification',
+    'Substrate Treatment',
+    'Aging Doping',
+)
+
+
+class DepositionStep(ArchiveSection):
+    """
+    A single step in a deposition routine.
+    The step_type field classifies the step; name gives the specific
+    technique (e.g. 'Spin Coating', 'Thermal Evaporation').
+    """
+    step_index = Quantity(
+        type=int,
+        description='Ordinal index of this step in the deposition sequence.',
+        a_eln=ELNAnnotation(component='NumberEditQuantity'),
+    )
+    step_type = Quantity(
+        type=STEP_TYPES,
+        description='Classification of the deposition step.',
+        a_eln=ELNAnnotation(component='EnumEditQuantity'),
+    )
+    name = Quantity(
+        type=str,
+        description='Specific technique name, e.g. "Spin Coating", '
+                    '"Thermal Evaporation", "UV-Ozone Treatment".',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    timestamp = Quantity(
+        type=Datetime,
+        description='Absolute date and time at which this step was executed.',
+        a_eln=ELNAnnotation(component='DateTimeEditQuantity'),
+    )
+    duration = Quantity(
+        type=float,
+        unit='minute',
+        description='Duration of this step.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='minute',
+        ),
+    )
+    atmosphere = Quantity(
+        type=str,
+        description='Atmosphere during the step, e.g. "N2 glovebox", "ambient".',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    temperature = Quantity(
+        type=float,
+        unit='celsius',
+        description='Substrate or process temperature during this step.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='celsius',
+        ),
+    )
+    material = SubSection(
+        section_def=DepositedMaterial,
+        description='Material or solution deposited in this step.',
+    )
+
+
+# ── DepositionRoutine — a Process Activity ───────────────────────────────────
+
+class DepositionRoutine(Process, EntryData):
+    """
+    A deposition experiment that takes a SubstrateEntity as input and
+    produces one or more PerovskiteSolarCellSample entries.
+
+    Inheriting Process (→ Activity → BaseSection) gives:
+      - name, lab_id, datetime, description   (BaseSection)
+      - start_time, end_time                  (Activity — auto-derived from steps)
+      - appears in /search/eln as a Process
+
+    The substrate_entity reference drives the History tab on SubstrateEntity:
+    every DepositionRoutine performed on a substrate appears there automatically.
+
+    start_time and end_time are derived in normalize() from the minimum and
+    maximum timestamps of the deposition steps — no manual entry needed.
+    """
+    m_def = Section(
+        label='Deposition Routine',
+        a_eln=dict(
+            properties=dict(
+                order=[
+                    'name', 'lab_id', 'datetime',
+                    'substrate_entity',
+                    'start_time', 'end_time',
+                    'steps',
+                ]
+            )
+        ),
+    )
+
+    substrate_entity = Quantity(
+        type=Reference(None),    # forward reference — resolved below
+        description=(
+            'The physical substrate on which this deposition was performed. '
+            'Multiple solar cells fabricated in one routine share this substrate.'
+        ),
+        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    )
+
+    steps = SubSection(
+        section_def=DepositionStep,
+        repeats=True,
+        description='Ordered list of deposition steps.',
+    )
+
+    def normalize(self, archive, logger):
+        # Handle case where archive is None (in unit tests)
+        if archive is not None:
+            super().normalize(archive, logger)
+
+        if not self.steps:
+            return
+
+        # Derive start_time and end_time from step timestamps
+        timestamps = [
+            s.timestamp for s in self.steps
+            if s.timestamp is not None
+        ]
+        if timestamps:
+            self.start_time = min(timestamps)
+            self.end_time   = max(timestamps)
+            if logger:
+                logger.info(
+                    f'DepositionRoutine: derived start={self.start_time}, '
+                    f'end={self.end_time} from {len(timestamps)} step timestamps.'
+                )
+
+        # Ensure steps are sorted by step_index if indices are set
+        indexed = [s for s in self.steps if s.step_index is not None]
+        if len(indexed) == len(self.steps):
+            self.steps = sorted(self.steps, key=lambda s: s.step_index)
+
+
+# ── SubstrateEntity ───────────────────────────────────────────────────────────
+
+class SubstrateEntity(CompositeSystem, EntryData):
+    """
+    A physical substrate as a laboratory entity.
+
+    Inheriting CompositeSystem (→ System → Entity → BaseSection) gives:
+      - lab_id, name, datetime           (from BaseSection via Entity)
+      - elemental_composition            (from System)
+      - History tab auto-populated       (from Entity membership)
+        showing all PerovskiteSolarCellSample entries that reference this substrate
+
+    The `substrate` subsection reuses the existing pvk database descriptive
+    section so no properties are duplicated.
+    Multiple solar cells can be fabricated on one substrate — each gets a
+    reference to the same SubstrateEntity entry. The History tab on the
+    SubstrateEntity then lists all of them automatically.
+    """
+    m_def = Section(
+        label='Substrate',
+        a_eln=dict(
+            properties=dict(
+                order=['name', 'lab_id', 'datetime', 'substrate']
+            )
+        ),
+    )
+
+    # Reuse the existing descriptive subsection verbatim
+    substrate = SubSection(
+        section_def=Substrate,
+        description='Physical and chemical description of the substrate.',
+    )
+
+    def normalize(self, archive, logger):
+        super().normalize(archive, logger)
+
+
+# Resolve forward reference on DepositionRoutine.substrate_entity
+DepositionRoutine.substrate_entity.type = Reference(SubstrateEntity.m_def)
+
+
 class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
     m_def = Section(
         label='Perovskite Solar Cell Sample',
         a_eln=dict(
             properties=dict(
-                order=['name', 'lab_id', 'datetime']
+                order=[
+                    'name', 'lab_id', 'datetime',
+                    'substrate_entity',
+                    'deposition_routine',
+                ]
             )
         ),
     )
 
+    substrate_entity = Quantity(
+        type=Reference(SubstrateEntity.m_def),
+        description='The physical substrate this cell was fabricated on.',
+        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    )
+
+    deposition_routine = Quantity(
+        type=Reference(DepositionRoutine.m_def),
+        description=(
+            'The DepositionRoutine Activity that produced this solar cell. '
+            'Links the cell to its full fabrication history.'
+        ),
+        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    )
+
     def normalize(self, archive, logger):
         super().normalize(archive, logger)
+
+        # Propagate substrate from entity → pvk substrate subsection
+        if self.substrate_entity is not None:
+            if self.substrate_entity.substrate is not None:
+                self.substrate = self.substrate_entity.substrate
+                logger.info(
+                    f'Propagated substrate properties from '
+                    f'{self.substrate_entity.lab_id} into sample.substrate'
+                )
+
+        # Propagate substrate_entity from deposition_routine if not set directly
+        if (self.substrate_entity is None
+                and self.deposition_routine is not None
+                and self.deposition_routine.substrate_entity is not None):
+            self.substrate_entity = self.deposition_routine.substrate_entity
+            logger.info(
+                'Propagated substrate_entity from deposition_routine '
+                f'{self.deposition_routine.lab_id}'
+            )
+
         self._populate_jv_from_measurements(archive, logger)
 
     def _populate_jv_from_measurements(self, archive, logger):

@@ -1,0 +1,35 @@
+data:
+  m_def: nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.DepositionRoutine
+  name: Spin-coating run 2024-11-15
+  lab_id: DEP-2024-001
+  substrate_entity: ../upload/raw/substrate_001.archive.yaml#/data
+  steps:
+    - step_index: 1
+      step_type: Substrate Treatment
+      name: UV-Ozone Cleaning
+      timestamp: '2024-11-15T08:00:00+00:00'
+      duration: 15.0
+      atmosphere: ambient
+    - step_index: 2
+      step_type: Wet Deposition
+      name: Spin Coating
+      timestamp: '2024-11-15T08:30:00+00:00'
+      duration: 1.5
+      atmosphere: N2 glovebox
+      temperature: 25.0
+      material:
+        name: MAPbI3 in DMF/DMSO
+        concentration: 1.3
+    - step_index: 3
+      step_type: Dry Deposition
+      name: Annealing
+      timestamp: '2024-11-15T09:00:00+00:00'
+      duration: 30.0
+      atmosphere: N2 glovebox
+      temperature: 100.0
+    - step_index: 4
+      step_type: Surface Modification
+      name: MACl Treatment
+      timestamp: '2024-11-15T09:45:00+00:00'
+      duration: 10.0
+      atmosphere: N2 glovebox
