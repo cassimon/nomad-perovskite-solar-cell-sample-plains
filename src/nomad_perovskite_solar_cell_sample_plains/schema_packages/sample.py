@@ -382,7 +382,7 @@ class GasQuenchingParameters(ArchiveSection):
     flow_rate = Quantity(
         type=float,
         description='Flow-rate value.',
-        unit='meter**3/minute',
+        unit='liter/minute',
         a_eln=ELNAnnotation(component='NumberEditQuantity'),
     )
 
