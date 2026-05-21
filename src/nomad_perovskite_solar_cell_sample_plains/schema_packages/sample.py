@@ -108,9 +108,14 @@ class DepositionStep(ArchiveSection):
                     '"Thermal Evaporation", "UV-Ozone Treatment".',
         a_eln=ELNAnnotation(component='StringEditQuantity'),
     )
+    color = Quantity(
+        type=str,
+        description='Color code for visual representation of this step.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
     timestamp = Quantity(
         type=Datetime,
-        description='Absolute date and time at which this step was executed.',
+        description='Absolute date and time at which this step was executed (deposition start time).',
         a_eln=ELNAnnotation(component='DateTimeEditQuantity'),
     )
     duration = Quantity(
@@ -122,9 +127,14 @@ class DepositionStep(ArchiveSection):
             defaultDisplayUnit='minute',
         ),
     )
+    deposition_method = Quantity(
+        type=str,
+        description='Specific deposition technique method.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
     atmosphere = Quantity(
         type=str,
-        description='Atmosphere during the step, e.g. "N2 glovebox", "ambient".',
+        description='Atmosphere during the deposition step, e.g. "N2 glovebox", "ambient".',
         a_eln=ELNAnnotation(component='StringEditQuantity'),
     )
     temperature = Quantity(
@@ -135,6 +145,58 @@ class DepositionStep(ArchiveSection):
             component='NumberEditQuantity',
             defaultDisplayUnit='celsius',
         ),
+    )
+    deposition_parameters = Quantity(
+        type=str,
+        description='Additional deposition parameters and settings.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    solution_volume = Quantity(
+        type=float,
+        unit='milliliter',
+        description='Volume of solution deposited in this step.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='milliliter',
+        ),
+    )
+    drying_method = Quantity(
+        type=str,
+        description='Method used for drying after deposition.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    annealing_start_time = Quantity(
+        type=Datetime,
+        description='Absolute date and time at which annealing started.',
+        a_eln=ELNAnnotation(component='DateTimeEditQuantity'),
+    )
+    annealing_time = Quantity(
+        type=float,
+        unit='minute',
+        description='Duration of annealing process.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='minute',
+        ),
+    )
+    annealing_temperature = Quantity(
+        type=float,
+        unit='celsius',
+        description='Temperature during annealing process.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='celsius',
+        ),
+    )
+    annealing_atmosphere = Quantity(
+        type=str,
+        description='Atmosphere during annealing, e.g. "N2", "Air", "Vacuum".',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    notes = Quantity(
+        type=str,
+        description='Additional notes and observations about this step.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
     )
     material = SubSection(
         section_def=DepositedMaterial,
