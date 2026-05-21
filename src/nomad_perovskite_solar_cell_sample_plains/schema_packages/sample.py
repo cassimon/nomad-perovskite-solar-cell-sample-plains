@@ -45,6 +45,47 @@ from baseclasses.solar_energy.mpp_tracking import MPPTracking
 
 m_package = SchemaPackage()
 
+class ImageFile(ArchiveSection):
+    """
+    A reusable subsection for attaching an image file.
+    The file is stored as a raw upload file; the quantity holds its name.
+    """
+    image = Quantity(
+        type=str,
+        description='An image file attached to this entry.',
+        a_eln=ELNAnnotation(
+            component='FileEditQuantity',
+            label='Image file',
+        ),
+        a_browser=dict(
+            # renders the image inline in the archive browser
+            adaptor='RawFileAdaptor',
+        ),
+    )
+    caption = Quantity(
+        type=str,
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+
+
+class DocumentFile(ArchiveSection):
+    """
+    A reusable subsection for attaching a PDF or other document.
+    """
+    document = Quantity(
+        type=str,
+        description='A PDF or document file attached to this entry.',
+        a_eln=ELNAnnotation(
+            component='FileEditQuantity',
+            label='Document (PDF)',
+        ),
+        a_browser=dict(adaptor='RawFileAdaptor'),
+    )
+    title = Quantity(
+        type=str,
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+
 
 # ── Material / Solution used in a deposition step ────────────────────────────
 
@@ -497,7 +538,16 @@ class QuenchingParameters(ArchiveSection):
 class ExtendedPerovskiteDeposition(PerovskiteDeposition):
     """
     Extends the pvk database PerovskiteDeposition with quenching_parameters.
-    All existing quantities and subsections are inherited unchanged.
+    All existing quantities and subsections are inherited unchimages = SubSection(
+        section_def=ImageFile,
+        repeats=True,
+        description='Microscopy images, photos, or other visual documentation.',
+    )
+    documents = SubSection(
+        section_def=DocumentFile,
+        repeats=True,
+        description='PDFs such as calibration certificates or lab reports.',
+    )anged.
     """
     m_def = Section()
 
@@ -527,6 +577,17 @@ class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
     perovskite_deposition = SubSection(
         section_def=ExtendedPerovskiteDeposition,
         description='Perovskite deposition parameters including quenching.',
+    )
+
+    images = SubSection(
+        section_def=ImageFile,
+        repeats=True,
+        description='Microscopy images, photos, or other visual documentation.',
+    )
+    documents = SubSection(
+        section_def=DocumentFile,
+        repeats=True,
+        description='PDFs such as calibration certificates or lab reports.',
     )
 
 
