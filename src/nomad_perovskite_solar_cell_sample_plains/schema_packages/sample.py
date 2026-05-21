@@ -247,7 +247,7 @@ class DepositionStep(ArchiveSection):
 
 # ── DepositionRoutine — a Process Activity ───────────────────────────────────
 
-class DepositionRoutine(Process, EntryData):
+class DepositionRoutine(Process):
     """
     A deposition experiment that takes a SubstrateEntity as input and
     produces one or more PerovskiteSolarCellSample entries.
@@ -322,7 +322,7 @@ class DepositionRoutine(Process, EntryData):
 
 # ── SubstrateEntity ───────────────────────────────────────────────────────────
 
-class SubstrateEntity(CompositeSystem, EntryData):
+class SubstrateEntity(CompositeSystem):
     """
     A physical substrate as a laboratory entity.
 
