@@ -36,7 +36,7 @@ configuration = config.get_plugin_entry_point(
 )
 
 
-from perovskite_solar_cell_database.schema import PerovskiteSolarCell, Substrate
+from perovskite_solar_cell_database.schema import PerovskiteSolarCell, Substrate, PerovskiteDeposition
 
 # baseclasses solar energy measurement sections — no tandem anywhere
 from baseclasses.solar_energy.jvmeasurement import JVMeasurement
@@ -320,6 +320,193 @@ class SubstrateEntity(CompositeSystem, EntryData):
 DepositionRoutine.substrate_entity.type = Reference(SubstrateEntity.m_def)
 
 
+# ── Quenching / Drying Parameters ────────────────────────────────────────────
+
+
+class GasQuenchingParameters(ArchiveSection):
+    """Quenching parameters for gas-assisted drying/quenching."""
+
+    gas_type = Quantity(
+        type=str,
+        description='Gas type, e.g. N2, Air, O2, Ar, He.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    pressure = Quantity(
+        type=float,
+        unit='Pa',
+        description='Pressure value.',
+        a_eln=ELNAnnotation(component='NumberEditQuantity'),
+    )
+
+    flow_rate = Quantity(
+        type=float,
+        description='Flow-rate value.',
+        unit='Slm',
+        a_eln=ELNAnnotation(component='NumberEditQuantity'),
+    )
+
+    height = Quantity(
+        type=float,
+        unit='centimeter',
+        description='Nozzle-to-substrate distance.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='millimeter',
+        ),
+    )
+
+    nozzle_width = Quantity(
+        type=float,
+        unit='millimeter',
+        description='Nozzle width.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='millimeter',
+        ),
+    )
+
+    nozzle_form = Quantity(
+        type=str,
+        description='Nozzle form, e.g. round, slit, wide.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+
+
+class AntisolventQuenchingParameters(ArchiveSection):
+    """Quenching parameters for antisolvent-assisted drying/quenching."""
+
+    media = Quantity(
+        type=str,
+        description='Reference string for media, e.g. material:<id> or solution:<id>.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    deposition_method = Quantity(
+        type=str,
+        description='Antisolvent deposition method, e.g. drip, spray, bath.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    flow_rate = Quantity(
+        type=float,
+        unit='microliter/second',
+        description='Antisolvent flow rate.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='microliter/second',
+        ),
+    )
+    height = Quantity(
+        type=float,
+        unit='millimeter',
+        description='Delivery height above substrate.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='millimeter',
+        ),
+    )
+
+    volume = Quantity(
+        type=float,
+        unit='microliter',
+        description='Antisolvent volume.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='microliter',
+        ),
+    )
+
+
+class VacuumQuenchingParameters(ArchiveSection):
+    """Quenching parameters for vacuum-assisted drying/quenching."""
+
+    height = Quantity(
+        type=float,
+        unit='millimeter',
+        description='Gap height.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='millimeter',
+        ),
+    )
+
+    base_area = Quantity(
+        type=float,
+        unit='centimeter ** 2',
+        description='Vacuum base area.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='centimeter ** 2',
+        ),
+    )
+
+    pump_model = Quantity(
+        type=str,
+        description='Pump model identifier.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    dead_volume = Quantity(
+        type=float,
+        unit='meter ** 3',
+        description='Dead volume in the vacuum setup.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='meter ** 3',
+        ),
+    )
+    evacuation_time = Quantity(
+        type=float,
+        unit='second',
+        description='Evacuation time.',
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity',
+            defaultDisplayUnit='second',
+        ),
+    )
+
+
+class QuenchingParameters(ArchiveSection):
+    """Unified quenching/drying parameters from the process dialog."""
+
+    m_def = Section(
+        label='Quenching Parameters',
+        a_eln=dict(
+            properties=dict(
+                order=[
+                    'quenching_type',
+                    'gas',
+                    'antisolvent',
+                    'vacuum',
+                ]
+            )
+        ),
+    )
+
+    gas = SubSection(
+        section_def=GasQuenchingParameters,
+        description='Gas-mode quenching parameters.',
+    )
+    antisolvent = SubSection(
+        section_def=AntisolventQuenchingParameters,
+        description='Antisolvent-mode quenching parameters.',
+    )
+    vacuum = SubSection(
+        section_def=VacuumQuenchingParameters,
+        description='Vacuum-mode quenching parameters.',
+    )
+
+
+class ExtendedPerovskiteDeposition(PerovskiteDeposition):
+    """
+    Extends the pvk database PerovskiteDeposition with quenching_parameters.
+    All existing quantities and subsections are inherited unchanged.
+    """
+    m_def = Section()
+
+    quenching_parameters = SubSection(
+        section_def=QuenchingParameters,
+        description='Quenching step applied after perovskite deposition.',
+    )
+
+
 class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
     m_def = Section(
         label='Perovskite Solar Cell Sample',
@@ -333,6 +520,15 @@ class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
             )
         ),
     )
+
+    # Shadow the upstream quantity with the extended type.
+    # NOMAD resolves quantities by MRO — this declaration takes
+    # precedence over the one inherited from PerovskiteSolarCell.
+    perovskite_deposition = SubSection(
+        section_def=ExtendedPerovskiteDeposition,
+        description='Perovskite deposition parameters including quenching.',
+    )
+
 
     substrate_entity = Quantity(
         type=Reference(SubstrateEntity.m_def),
