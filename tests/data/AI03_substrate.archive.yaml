@@ -1,0 +1,14 @@
+data:
+  m_def: "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.SubstrateEntity"
+  name: "AI03"
+  lab_id: "5ffdda0f-eeb8-4d5b-85c4-aeab273418bd"
+  substrate:
+    stack_sequence: "Glass | ITO"
+    thickness: 1.0
+    area: 4.0
+    supplier: "asd"
+    brand_name: "this is it"
+    deposition_procedure: "Commercial"
+    cleaning_procedure: "Sonicate"
+    surface_roughness_rms: 20.0
+  datetime: "2026-05-20T00:00:00"

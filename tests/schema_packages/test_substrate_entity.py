@@ -91,9 +91,11 @@ class TestSubstrateReference:
         """Cells on the same substrate can have different architectures."""
         a1 = load('cell_A1.archive.yaml')
         a3 = load('cell_A3.archive.yaml')
+        substrate = load('AI03_substrate.archive.yaml')
         # Check that cells loaded successfully and have substrate references
         assert a1.data.substrate_entity is not None
         assert a3.data.substrate_entity is not None
+        assert isinstance(substrate.data, SubstrateEntity)
         # Both reference substrates, different samples can have different properties
 
 
