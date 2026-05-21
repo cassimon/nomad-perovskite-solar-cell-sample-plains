@@ -557,7 +557,7 @@ class ExtendedPerovskiteDeposition(PerovskiteDeposition):
     )
 
 
-class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity, EntryData):
+class PerovskiteSolarCellSample(PerovskiteSolarCell, Entity):
     m_def = Section(
         label='Perovskite Solar Cell Sample',
         a_eln=dict(
