@@ -1,7 +1,0 @@
-data:
-  m_def: nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.PerovskiteSolarCellSample
-  name: Cell A2
-  lab_id: PVK-2024-A2
-  architecture: pin
-  substrate_entity: ../upload/raw/substrate_001.archive.yaml#/data
-  deposition_routine: ../upload/raw/deposition_routine_001.archive.yaml#/data

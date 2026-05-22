@@ -260,8 +260,8 @@ class SubstrateSample(CompositeSystem):
         description='Physical and chemical description of the substrate.',
     )
 
-    cell_areas = Quantity(
-        section_def=CompositeSystemReference.m_def,
+    cell_areas = SubSection(
+        section_def=CompositeSystemReference,
         repeats=True,
         description='Areas of the substrate where solar cells are located.',
     )
@@ -310,16 +310,6 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
 
     def normalize(self, archive, logger):
         super().normalize(archive, logger)
-
-        if self.substrate_entity is not None and self.substrate_entity.substrate is not None:
-            self.substrate = self.substrate_entity.substrate
-
-        if (
-            self.substrate_entity is None
-            and self.deposition_routine is not None
-            and self.deposition_routine.substrate_entity is not None
-        ):
-            self.substrate_entity = self.deposition_routine.substrate_entity
 
         if self.cell is not None and self.cell.stack_sequence:
             layers = self.cell.stack_sequence.split(' | ')
@@ -423,7 +413,7 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
         if hasattr(measurement, 'efficiency') and measurement.efficiency is not None:
             jv.default_PCE = measurement.efficiency
         if hasattr(measurement, 'light_intensity') and measurement.light_intensity is not None:
-            jv.light_intensity = measurement.light_intensitypload/deposition.archive.yaml
+            jv.light_intensity = measurement.light_intensity
         if hasattr(measurement, 'temperature') and measurement.temperature is not None:
             jv.test_temperature = measurement.temperature
 

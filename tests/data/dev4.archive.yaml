@@ -1,0 +1,122 @@
+data:
+  m_def: "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.PerovskiteSolarCellSampleArea"
+  name: "AI03 device 4"
+  lab_id: "5ffdda0f-eeb8-4d5b-85c4-aeab273418bd_dev4"
+  ref:
+    free_text_comment: "Aieah 2"
+    name_of_person_entering_the_data: "Simon Ternes"
+  cell:
+    stack_sequence: "Glass | ITO | Meo-2Pacz | Perovskite | PCBM | something |\
+      \ Au"
+    architecture: "nip"
+    area_total: 0.15
+  substrate:
+    stack_sequence: "Glass | ITO"
+    thickness: 1.0
+    area: 4.0
+    supplier: "asd"
+    brand_name: "this is it"
+    deposition_procedure: "Commercial"
+    cleaning_procedure: "Sonicate"
+    surface_roughness_rms: 20.0
+  etl:
+    stack_sequence: "PCBM | something"
+    thickness: "300 | 20"
+    deposition_procedure: "Spin Coating | Spin Coating"
+    deposition_synthesis_atmosphere: "Unknown | Unknown"
+    deposition_solvents: "Chlorobenzene; Dichlorobenzene | Isopropanol"
+    deposition_reaction_solutions_compounds: "PCBM | something"
+    deposition_reaction_solutions_concentrations: "22.0000 mg/ml | 41.0000 mg/ml"
+    deposition_reaction_solutions_volumes: "Unknown | 903"
+    deposition_reaction_solutions_temperature: "Unknown"
+    deposition_substrate_temperature: "Unknown | Unknown"
+    deposition_thermal_annealing_temperature: "1220 | 1345"
+    deposition_thermal_annealing_time: "50 | 50"
+    deposition_thermal_annealing_atmosphere: "Unknown | Unknown"
+    surface_treatment_before_next_deposition_step: "Unknown"
+  perovskite:
+    dimension_3D: true
+    dimension_list_of_layers: "3.0"
+    composition_perovskite_ABC3_structure: true
+    composition_a_ions: "Cs; FA"
+    composition_a_ions_coefficients: "0.17; 0.83"
+    composition_b_ions: "Pb"
+    composition_b_ions_coefficients: "1"
+    composition_c_ions: "I; BR"
+    composition_c_ions_coefficients: "0.75; 0.25"
+    composition_short_form: "Cs0.17FA0.83PbI0.75BR0.25"
+    composition_long_form: "Cs0.17FA0.83PbI0.75BR0.25"
+    thickness: "400"
+    band_gap: "1.65"
+  perovskite_deposition:
+    number_of_deposition_steps: 1
+    procedure: "Spin Coating"
+    aggregation_state_of_reactants: "Unknown"
+    synthesis_atmosphere: "Unknown"
+    synthesis_atmosphere_pressure_total: "Unknown"
+    synthesis_atmosphere_pressure_partial: "Unknown"
+    synthesis_atmosphere_relative_humidity: "Unknown"
+    solvents: "DMF; DMSO"
+    solvents_mixing_ratios: "5.8; 1.2"
+    solvents_supplier: "Sigma"
+    solvents_purity: "99%"
+    reaction_solutions_compounds: "Caesium iodide; FAI; PbBr2; PbI2"
+    reaction_solutions_compounds_supplier: "Sigma"
+    reaction_solutions_compounds_purity: "99%"
+    reaction_solutions_concentrations: "651.8333 mg/ml; 1929.8292 mg/ml; 1932.6667 mg/ml;\
+      \ 4063.3333 mg/ml"
+    reaction_solutions_volumes: "130"
+    reaction_solutions_age: "Unknown"
+    reaction_solutions_temperature: "Unknown"
+    substrate_temperature: "Unknown"
+    thermal_annealing_temperature: "100"
+    thermal_annealing_time: "12"
+    thermal_annealing_atmosphere: "Unknown"
+    thermal_annealing_relative_humidity: "Unknown"
+    thermal_annealing_pressure: "Unknown"
+    solvent_annealing: false
+    solvent_annealing_timing: "Unknown"
+    solvent_annealing_solvent_atmosphere: "Unknown"
+    solvent_annealing_time: "Unknown"
+    solvent_annealing_temperature: "Unknown"
+    after_treatment_of_formed_perovskite: "false"
+    after_treatment_of_formed_perovskite_method: "Unknown"
+    quenching_parameters:
+      antisolvent:
+        media: "Chlorobenzene"
+        deposition_method: "drip"
+        flow_rate: 10.0
+        height: 1.0
+        volume: 1.0
+  htl:
+    stack_sequence: "Meo-2Pacz"
+    thickness_list: "2"
+    deposition_procedure: "Spin Coating"
+    deposition_synthesis_atmosphere: "Unknown"
+    deposition_solvents: "Ethanol"
+    deposition_reaction_solutions_compounds: "Meo-2Pacz"
+    deposition_reaction_solutions_concentrations: "1.5000 mg/ml"
+    deposition_reaction_solutions_volumes: "160"
+    deposition_reaction_solutions_temperature: "Unknown"
+    deposition_substrate_temperature: "Unknown"
+    deposition_thermal_annealing_temperature: "90"
+    deposition_thermal_annealing_time: "4"
+    deposition_thermal_annealing_atmosphere: "Unknown"
+    surface_treatment_before_next_deposition_step: "Unknown"
+  backcontact:
+    stack_sequence: "Au"
+    thickness_list: "60"
+    deposition_procedure: "Evaporation"
+    deposition_synthesis_atmosphere: "Unknown"
+    deposition_solvents: "Unknown"
+    deposition_reaction_solutions_compounds: "Unknown"
+    deposition_reaction_solutions_concentrations: "Unknown"
+    deposition_reaction_solutions_volumes: "Unknown"
+    deposition_reaction_solutions_temperature: "Unknown"
+    deposition_substrate_temperature: "Unknown"
+    deposition_thermal_annealing_temperature: "Unknown"
+    deposition_thermal_annealing_time: "Unknown"
+    deposition_thermal_annealing_atmosphere: "Unknown"
+    surface_treatment_before_next_deposition_step: "Unknown"
+  jv:
+    light_spectra: "AM 1.5G"

@@ -2,14 +2,15 @@ data:
   m_def: "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.DepositionRoutine"
   name: "AI03 deposition"
   lab_id: "5ffdda0f-eeb8-4d5b-85c4-aeab273418bd_deposition"
-  substrate_entity: "../upload/raw/AI03_substrate.archive.yaml#/data"
+  samples:
+  - reference: "../upload/raw/AI03_substrate.archive.yaml#/data"
   steps:
   - step_index: 1
     step_type: "Substrate Treatment"
     name: "Sonicate"
     timestamp: "2026-05-21T08:00:00"
-    annealing_time: 50.0
-    duration: 25.0
+    annealing_time: 2.0
+    duration: 2.0
     material:
       name: "Isopropanol"
       supplier: "Sigma"
@@ -17,11 +18,11 @@ data:
     step_type: "Wet Deposition"
     name: "Spin Coating"
     timestamp: "2026-05-21T09:00:00"
-    deposition_parameters: "10 s; 1000 rpm; ;"
-    solution_volume: 110.0
-    annealing_time: 15.0
-    duration: 15.0
-    annealing_temperature: 160.0
+    deposition_parameters: "10 s; 15000 rpm; 2 acc; 30 s;"
+    solution_volume: 1350.0
+    annealing_time: 30.0
+    duration: 30.0
+    annealing_temperature: 130.0
     material:
       name: "Meo-2Pacz in Ethanol 05/20/2026"
       supplier: "Unknown"
@@ -29,12 +30,12 @@ data:
     step_type: "Wet Deposition"
     name: "Spin Coating"
     timestamp: "2026-05-21T10:00:00"
-    solution_volume: 170.0
+    solution_volume: 1660.0
     drying_method: "type=Antisolvent|media=material:b5fc5eb1-0923-4aca-b39e-8f7f6123c4a3|flowRate=10\
       \ ul/s|depositionMethod=drip|height=1 mm|volume=1 mL"
     annealing_time: 25.0
-    duration: 15.0
-    annealing_temperature: 110.0
+    duration: 25.0
+    annealing_temperature: 130.0
     material:
       name: "Perovskite Solution"
       supplier: "Unknown"
@@ -42,11 +43,11 @@ data:
     step_type: "Surface Modification"
     name: "Spin Coating"
     timestamp: "2026-05-22T08:09:00"
-    deposition_parameters: "25000 rpm; 2 acc; 30 s;"
-    solution_volume: 100.0
-    annealing_time: 5.0
-    duration: 5.0
-    annealing_temperature: 100.0
+    deposition_parameters: "2000 rpm; 2 acc; 30 s;"
+    solution_volume: 50.0
+    annealing_time: 50.0
+    duration: 50.0
+    annealing_temperature: 110.0
     material:
       name: "PEACl in Isopropanol 05/20/2026"
       supplier: "Unknown"
@@ -59,7 +60,7 @@ data:
     duration: 5.0
     annealing_temperature: 100.0
     material:
-      name: "PCBM "
+      name: "PCBM in CB"
       supplier: "Unknown"
   - step_index: 6
     step_type: "Wet Deposition"
@@ -71,7 +72,7 @@ data:
     duration: 5.0
     annealing_temperature: 115.0
     material:
-      name: "something in Isopropanol 05/20/2026"
+      name: "Something in Isopropanol 05/20/2026"
       supplier: "Unknown"
   - step_index: 7
     step_type: "Dry Deposition"
@@ -83,5 +84,3 @@ data:
   start_time: "2026-05-21T08:00:00"
   end_time: "2026-05-22T11:00:00"
   datetime: "2026-05-21T08:00:00"
-
-

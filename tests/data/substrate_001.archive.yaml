@@ -1,6 +1,0 @@
-data:
-  m_def: nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.SubstrateEntity
-  name: ITO on glass batch A
-  lab_id: SUB-2024-001
-  substrate:
-    supplier: Sigma Aldrich
