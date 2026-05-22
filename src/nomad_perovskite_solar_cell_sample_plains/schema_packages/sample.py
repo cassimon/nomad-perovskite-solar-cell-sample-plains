@@ -2,7 +2,7 @@ from nomad.app.v1.models import MetadataPagination
 from nomad.config import config
 from nomad.datamodel.data import ArchiveSection
 from nomad.datamodel.metainfo.annotations import ELNAnnotation
-from nomad.datamodel.metainfo.basesections import CompositeSystem, Process, ProcessStep
+from nomad.datamodel.metainfo.basesections import CompositeSystem,CompositeSystemReference, Process, ProcessStep
 from nomad.datamodel.metainfo.plot import PlotSection, PlotlyFigure
 from nomad.metainfo import Datetime, MEnum, Quantity, Reference, SchemaPackage, Section, SubSection
 from nomad.search import search
@@ -126,19 +126,7 @@ class DepositionStep(ProcessStep):
     material = SubSection(section_def=DepositedMaterial)
 
 
-class SubstrateEntity(CompositeSystem):
-    m_def = Section(
-        label='Substrate',
-        a_eln=dict(properties=dict(order=['name', 'lab_id', 'datetime', 'substrate'])),
-    )
 
-    substrate = SubSection(
-        section_def=Substrate,
-        description='Physical and chemical description of the substrate.',
-    )
-
-    def normalize(self, archive, logger):
-        super().normalize(archive, logger)
 
 
 class DepositionRoutine(Process):
@@ -151,11 +139,12 @@ class DepositionRoutine(Process):
         ),
     )
 
-    substrate_entity = Quantity(
-        type=Reference(SubstrateEntity.m_def),
-        description='Substrate used by this routine.',
-        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
-    )
+    # substrate_entity = Quantity(
+    #     type=Reference(SubstrateEntity.m_def),
+    #     description='Substrate used by this routine.',
+    #     a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    # )
+
     steps = SubSection(section_def=DepositionStep, repeats=True)
 
     def normalize(self, archive, logger):
@@ -260,8 +249,27 @@ class ExtendedPerovskiteDeposition(PerovskiteDeposition):
         description='Quenching step applied after perovskite deposition.',
     )
 
+class SubstrateSample(CompositeSystem):
+    m_def = Section(
+        label='Substrate',
+        a_eln=dict(properties=dict(order=['name', 'lab_id', 'datetime', 'substrate'])),
+    )
 
-class PerovskiteSolarCellSample(CompositeSystem, PlotSection):
+    substrate = SubSection(
+        section_def=Substrate,
+        description='Physical and chemical description of the substrate.',
+    )
+
+    cell_areas = Quantity(
+        section_def=CompositeSystemReference.m_def,
+        repeats=True,
+        description='Areas of the substrate where solar cells are located.',
+    )
+
+    def normalize(self, archive, logger):
+        super().normalize(archive, logger)
+
+class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
     m_def = Section(
         label='Perovskite Solar Cell Sample',
         a_eln=dict(
@@ -269,16 +277,16 @@ class PerovskiteSolarCellSample(CompositeSystem, PlotSection):
         ),
     )
 
-    substrate_entity = Quantity(
-        type=Reference(SubstrateEntity.m_def),
-        description='The physical substrate this cell was fabricated on.',
-        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
-    )
-    deposition_routine = Quantity(
-        type=Reference(DepositionRoutine.m_def),
-        description='The DepositionRoutine activity that produced this solar cell.',
-        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
-    )
+    # substrate_entity = Quantity(
+    #     type=Reference(SubstrateEntity.m_def),
+    #     description='The physical substrate this cell was fabricated on.',
+    #     a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    # )
+    # deposition_routine = Quantity(
+    #     type=Reference(DepositionRoutine.m_def),
+    #     description='The DepositionRoutine activity that produced this solar cell.',
+    #     a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    # )
 
     ref = SubSection(section_def=Ref)
     cell = SubSection(section_def=Cell)
@@ -415,7 +423,7 @@ class PerovskiteSolarCellSample(CompositeSystem, PlotSection):
         if hasattr(measurement, 'efficiency') and measurement.efficiency is not None:
             jv.default_PCE = measurement.efficiency
         if hasattr(measurement, 'light_intensity') and measurement.light_intensity is not None:
-            jv.light_intensity = measurement.light_intensity
+            jv.light_intensity = measurement.light_intensitypload/deposition.archive.yaml
         if hasattr(measurement, 'temperature') and measurement.temperature is not None:
             jv.test_temperature = measurement.temperature
 
