@@ -151,13 +151,6 @@ class DepositionRoutine(Process):
         if archive is not None:
             super().normalize(archive, logger)
 
-        for sample in (self.samples or []):
-            # `sample` is a CompositeSystemReference instance (or similar)
-            if sample is None:
-                continue
-            sample.normalize(archive, logger);
-
-
         if not self.steps:
             return
 
@@ -275,11 +268,6 @@ class SubstrateSample(CompositeSystem):
 
     def normalize(self, archive, logger):
         super().normalize(archive, logger)
-        for area in (self.cell_areas or []):
-            # `area` is a CompositeSystemReference instance (or similar)
-            if area is None:
-                continue
-            area.normalize(archive, logger);
 
 class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
     m_def = Section(
