@@ -367,7 +367,7 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
                 owner='visible',
                 query={'entry_references.target_entry_id': archive.metadata.entry_id},
                 pagination=MetadataPagination(page_size=100),
-                required='entry_id,upload_id',
+                required=['entry_id', 'upload_id'],
             )
         except Exception as e:
             if logger:
