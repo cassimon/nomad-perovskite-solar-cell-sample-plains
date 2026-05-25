@@ -5,7 +5,7 @@ from nomad.datamodel.metainfo.annotations import ELNAnnotation
 from nomad.datamodel.metainfo.basesections import CompositeSystem,CompositeSystemReference, Process, ProcessStep
 from nomad.datamodel.metainfo.plot import PlotSection, PlotlyFigure
 from nomad.metainfo import Datetime, MEnum, Quantity, Reference, SchemaPackage, Section, SubSection
-from nomad.search import search
+from nomad.search import search, MetadataRequired
 
 from baseclasses.solar_energy.eqemeasurement import EQEMeasurement
 from baseclasses.solar_energy.jvmeasurement import JVMeasurement
@@ -367,7 +367,9 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
                 owner='visible',
                 query={'entry_references.target_entry_id': archive.metadata.entry_id},
                 pagination=MetadataPagination(page_size=100),
-                required=['entry_id', 'upload_id'],
+                required=MetadataRequired(
+        include=['entry_id', 'upload_id']
+    ),
             )
         except Exception as e:
             if logger:
