@@ -514,6 +514,9 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
         if curves:
             jv.jv_curve = curves
 
+        self._populate_scan_directions(measurements, best_curve)
+        self._populate_jv_settings(measurements)
+
         if best_curve is None:
             if logger and measurements:
                 logger.info(
@@ -523,39 +526,195 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
             return
 
         jv.default_PCE = best_curve.efficiency
+        jv.default_PCE_scan_direction = self._scan_direction(best_curve)
         if best_curve.open_circuit_voltage is not None:
             jv.default_Voc = best_curve.open_circuit_voltage
+            jv.default_Voc_scan_direction = self._scan_direction(best_curve)
         if best_curve.short_circuit_current_density is not None:
             jv.default_Jsc = best_curve.short_circuit_current_density
+            jv.default_Jsc_scan_direction = self._scan_direction(best_curve)
         if best_curve.fill_factor is not None:
             jv.default_FF = best_curve.fill_factor
+            jv.default_FF_scan_direction = self._scan_direction(best_curve)
         if best_curve.light_intensity is not None:
             jv.light_intensity = best_curve.light_intensity
 
-    def _populate_from_eqe(self, measurement):
+    @staticmethod
+    def _scan_direction(curve):
+        """The instrument's 'FW'/'RV' as the perovskite database spells it.
+
+        The database's own enum suggestions are 'Forward' and 'Reversed'.
+        """
+        name = (getattr(curve, 'cell_name', None) or '').strip().upper()
+        if name.startswith('FW') or 'FORWARD' in name:
+            return 'Forward'
+        if name.startswith('RV') or 'REVERSE' in name:
+            return 'Reversed'
+        return None
+
+    def _populate_scan_directions(self, measurements, best_curve):
+        """Map the per-scan curves onto the database's forward_/reverse_scan_* fields.
+
+        The CHOSE summary table states Voc, Jsc, V_MPP, J_MPP, FF, Eff, Rs and R//
+        separately for the forward and reverse scan, and the perovskite database
+        has a field for each -- so nothing needs to be averaged away.
+        """
         jv = self.jv
-        if hasattr(measurement, 'temperature') and measurement.temperature is not None and not jv.test_temperature:
-            jv.test_temperature = measurement.temperature
-        if hasattr(measurement, 'light_intensity') and measurement.light_intensity is not None and not jv.light_intensity:
-            jv.light_intensity = measurement.light_intensity
+        prefixes = {'Forward': 'forward_scan', 'Reversed': 'reverse_scan'}
+        fields = {
+            'Voc': 'open_circuit_voltage',
+            'Jsc': 'short_circuit_current_density',
+            'FF': 'fill_factor',
+            'PCE': 'efficiency',
+            'Vmp': 'potential_at_maximum_power_point',
+            'Jmp': 'current_density_at_maximun_power_point',
+            'series_resistance': 'series_resistance',
+            'shunt_resistance': 'shunt_resistance',
+        }
+
+        seen = {}
+        for measurement in measurements:
+            for curve in measurement.jv_curve or []:
+                if getattr(curve, 'dark', False):
+                    continue
+                direction = self._scan_direction(curve)
+                if direction is None:
+                    continue
+                # Keep the best scan per direction, so the FW/RV pair is comparable.
+                previous = seen.get(direction)
+                if (
+                    previous is None
+                    or curve.efficiency is not None
+                    and (previous.efficiency is None or curve.efficiency > previous.efficiency)
+                ):
+                    seen[direction] = curve
+
+        for direction, curve in seen.items():
+            prefix = prefixes[direction]
+            for suffix, attribute in fields.items():
+                value = getattr(curve, attribute, None)
+                if value is None:
+                    continue
+                setattr(jv, f'{prefix}_{suffix}', value)
+
+        forward = seen.get('Forward')
+        reverse = seen.get('Reversed')
+        if (
+            forward is not None
+            and reverse is not None
+            and forward.efficiency is not None
+            and reverse.efficiency is not None
+            and reverse.efficiency
+        ):
+            # As defined by the perovskite database: (PCE_rev - PCE_fwd) / PCE_rev.
+            jv.hysteresis_index = float(
+                (reverse.efficiency - forward.efficiency) / reverse.efficiency
+            )
+
+    def _populate_jv_settings(self, measurements):
+        """Carry the instrument's scan settings into the database's JV section."""
+        jv = self.jv
+        for measurement in measurements:
+            settings = getattr(measurement, 'settings', None)
+            if settings is None:
+                continue
+            if settings.scan_rate is not None and jv.scan_speed is None:
+                jv.scan_speed = settings.scan_rate
+            if settings.voltage_step is not None and jv.scan_voltage_step is None:
+                jv.scan_voltage_step = settings.voltage_step
+            if getattr(measurement, 'active_area', None) is not None and jv.light_mask_area is None:
+                jv.light_mask_area = measurement.active_area
+
+    def _populate_from_eqe(self, measurement):
+        """Populate the sample's `eqe` section from an EQE measurement.
+
+        This used to probe `measurement.temperature` / `.light_intensity`, neither
+        of which exists on baseclasses' `EQEMeasurement` -- so both `hasattr`
+        checks were always false and nothing was ever written.
+        """
+        from perovskite_solar_cell_database.schema_sections.eqe import EQE as EQESection
+
+        jv = self.jv
+
+        temperature = getattr(measurement, 'temperature', None)
+        if temperature is not None and not jv.test_temperature:
+            jv.test_temperature = temperature
+
+        data = (measurement.eqe_data or [None])[0]
+        if data is None:
+            return
+
+        if not self.eqe:
+            self.eqe = EQESection()
+        eqe = self.eqe
+        eqe.measured = True
+
+        for attribute in (
+            'bandgap_eqe',
+            'integrated_jsc',
+            'integrated_j0rad',
+            'voc_rad',
+            'urbach_energy',
+            'eqe_array',
+            'photon_energy_array',
+            'wavelength_array',
+            'raw_eqe_array',
+            'raw_photon_energy_array',
+            'raw_wavelength_array',
+            'light_bias',
+        ):
+            value = getattr(data, attribute, None)
+            if value is not None and eqe.m_def.all_properties.get(attribute) is not None:
+                setattr(eqe, attribute, value)
 
     def _populate_from_mppt(self, measurement):
-        jv = self.jv
+        """Populate the sample's `stability` and `stabilised` sections from an MPP track."""
+        from perovskite_solar_cell_database.schema_sections.stability import (
+            Stability as StabilitySection,
+        )
+        from perovskite_solar_cell_database.schema_sections.stabilised import (
+            Stabilised as StabilisedSection,
+        )
 
-        # Only a fallback: a JV-derived PCE always wins. Note `is not None` rather than a
-        # truth test, so that a legitimately measured 0 % PCE is not overwritten.
-        if jv.default_PCE is not None:
-            return
+        jv = self.jv
 
         # MPPTracking.efficiency is the efficiency *over time*, not a scalar; the
         # stabilised value is the last valid point of the track.
         efficiency = measurement.efficiency
-        if efficiency is None or len(efficiency) == 0:
+        stabilised = []
+        if efficiency is not None and len(efficiency):
+            stabilised = [
+                float(value) for value in efficiency if math.isfinite(float(value))
+            ]
+
+        if stabilised:
+            if not self.stabilised:
+                self.stabilised = StabilisedSection()
+            self.stabilised.performance_measured = True
+            self.stabilised.performance_PCE = stabilised[-1]
+
+            # Only a fallback: a JV-derived PCE always wins. Note `is not None`
+            # rather than a truth test, so a legitimately measured 0 % PCE is kept.
+            if jv.default_PCE is None:
+                jv.default_PCE = stabilised[-1]
+
+        figures = (measurement.results or [None])[0]
+        time = measurement.time
+
+        if figures is None and time is None:
             return
 
-        stabilised = [float(value) for value in efficiency if math.isfinite(float(value))]
+        if not self.stability:
+            self.stability = StabilitySection()
+        stability = self.stability
+        stability.measured = True
+
+        if time is not None and len(time):
+            stability.time_total_exposure = time[-1]
         if stabilised:
-            jv.default_PCE = stabilised[-1]
+            stability.PCE_end_of_experiment = stabilised[-1]
+        if figures is not None and getattr(figures, 'T80', None) is not None:
+            stability.PCE_T80 = figures.T80
 
 
 m_package.__init_metainfo__()
