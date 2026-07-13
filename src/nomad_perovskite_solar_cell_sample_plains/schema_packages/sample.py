@@ -338,20 +338,26 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
             jsc = self.jv.default_Jsc if self.jv else None
             ff = self.jv.default_FF if self.jv else None
 
-            fig = create_cell_stack_figure(
-                layers=layers,
-                thicknesses=thicknesses,
-                colors=colors,
-                efficiency=efficiency,
-                voc=voc,
-                jsc=jsc,
-                ff=ff,
-                x_min=0,
-                x_max=10,
-                y_min=0,
-                y_max=10,
-            )
-            self.figures = [PlotlyFigure(figure=fig.to_plotly_json())]
+            try:
+                fig = create_cell_stack_figure(
+                    layers=layers,
+                    thicknesses=thicknesses,
+                    colors=colors,
+                    efficiency=efficiency,
+                    voc=voc,
+                    jsc=jsc,
+                    ff=ff,
+                    x_min=0,
+                    x_max=10,
+                    y_min=0,
+                    y_max=10,
+                )
+                self.figures = [PlotlyFigure(figure=fig.to_plotly_json())]
+            except (TypeError, ValueError) as e:
+                logger.warning(
+                    'Could not create cell stack figure.',
+                    exc_info=e,
+                )
 
         self._populate_jv_from_measurements(archive, logger)
 
