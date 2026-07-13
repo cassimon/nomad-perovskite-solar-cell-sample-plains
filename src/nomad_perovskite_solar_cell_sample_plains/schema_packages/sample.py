@@ -680,11 +680,17 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
 
         # MPPTracking.efficiency is the efficiency *over time*, not a scalar; the
         # stabilised value is the last valid point of the track.
+        #
+        # Only points where the cell actually *delivers* power count. A track that
+        # starts above Voc (a fixed-voltage algorithm does) opens with the cell
+        # being driven, i.e. a negative efficiency -- which is not a PCE.
         efficiency = measurement.efficiency
         stabilised = []
         if efficiency is not None and len(efficiency):
             stabilised = [
-                float(value) for value in efficiency if math.isfinite(float(value))
+                float(value)
+                for value in efficiency
+                if math.isfinite(float(value)) and float(value) > 0
             ]
 
         if stabilised:

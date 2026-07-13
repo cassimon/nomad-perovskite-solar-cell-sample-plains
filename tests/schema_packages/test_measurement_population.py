@@ -146,6 +146,20 @@ def test_mppt_populates_stability_and_stabilised(sample):
     assert sample.stability.time_total_exposure.to('hour').magnitude == pytest.approx(1.0)
 
 
+def test_a_driven_cell_is_not_recorded_as_a_stabilised_pce(sample):
+    """A track that opens above Voc has the cell consuming power (negative
+    efficiency). That is not a PCE, and must not be stored as one."""
+    measurement = MPPTracking()
+    measurement.time = np.array([0.0, 1800.0]) * ureg('s')
+    measurement.efficiency = np.array([-17.57, -16.0])  # driven the whole way
+    measurement.results = [StabilityFiguresOfMerit()]
+
+    sample._populate_from_mppt(measurement)
+
+    assert sample.stabilised is None
+    assert sample.jv.default_PCE is None
+
+
 def test_a_jv_derived_pce_still_beats_the_mppt_fallback(sample):
     sample._populate_from_jv([chose_measurement()])
     measurement = MPPTracking()
