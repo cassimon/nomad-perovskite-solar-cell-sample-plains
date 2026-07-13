@@ -1,3 +1,5 @@
+import math
+
 from nomad.app.v1.models import MetadataPagination
 from nomad.config import config
 from nomad.datamodel.data import ArchiveSection
@@ -27,7 +29,7 @@ from perovskite_solar_cell_database.schema_sections import (
     Stability,
     Stabilised,
 )
-from perovskite_solar_cell_database.utils import create_cell_stack_figure
+from nomad_perovskite_solar_cell_sample_plains.utils import create_cell_stack_figure
 
 configuration = config.get_plugin_entry_point(
     'nomad_perovskite_solar_cell_sample_plains.schema_packages:schema_package_entry_point'
@@ -385,10 +387,9 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
         if not results.data:
             return
 
-        if not self.jv:
-            from perovskite_solar_cell_database.schema_sections.jv import JV as JVSection
-
-            self.jv = JVSection()
+        jv_measurements = []
+        eqe_measurements = []
+        mppt_measurements = []
 
         for hit in results.data:
             try:
@@ -398,47 +399,83 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
                     continue
 
                 if isinstance(entry, JVMeasurement):
-                    self._populate_from_jv(entry)
+                    jv_measurements.append(entry)
                 elif isinstance(entry, EQEMeasurement):
-                    self._populate_from_eqe(entry)
+                    eqe_measurements.append(entry)
                 elif isinstance(entry, MPPTracking):
-                    self._populate_from_mppt(entry)
+                    mppt_measurements.append(entry)
             except Exception as e:
                 if logger:
                     logger.warning(f'Could not load referenced entry {hit.entry_id}: {e}')
 
-    def _populate_from_jv(self, measurement):
+        if not (jv_measurements or eqe_measurements or mppt_measurements):
+            return
+
+        if not self.jv:
+            from perovskite_solar_cell_database.schema_sections.jv import JV as JVSection
+
+            self.jv = JVSection()
+
+        self._populate_from_jv(jv_measurements, logger)
+        for measurement in eqe_measurements:
+            self._populate_from_eqe(measurement)
+        for measurement in mppt_measurements:
+            self._populate_from_mppt(measurement)
+
+    def _populate_from_jv(self, measurements, logger=None):
+        """
+        Derives the default JV parameters from every linked JV measurement.
+
+        The measured values live on the repeating `jv_curve` subsections (one per cell
+        and scan direction), not on the JVMeasurement itself. The device defaults are
+        taken from the single best-performing curve -- highest efficiency, ignoring dark
+        curves -- so that Voc/Jsc/FF/PCE all describe the same curve instead of being
+        mixed across measurements.
+        """
+        from perovskite_solar_cell_database.schema_sections.jv import JVcurve
+
         jv = self.jv
-        if hasattr(measurement, 'open_circuit_voltage') and measurement.open_circuit_voltage is not None:
-            jv.default_Voc = measurement.open_circuit_voltage
-        if (
-            hasattr(measurement, 'short_circuit_current_density')
-            and measurement.short_circuit_current_density is not None
-        ):
-            jv.default_Jsc = measurement.short_circuit_current_density
-        if hasattr(measurement, 'fill_factor') and measurement.fill_factor is not None:
-            jv.default_FF = measurement.fill_factor
-        if hasattr(measurement, 'efficiency') and measurement.efficiency is not None:
-            jv.default_PCE = measurement.efficiency
-        if hasattr(measurement, 'light_intensity') and measurement.light_intensity is not None:
-            jv.light_intensity = measurement.light_intensity
-        if hasattr(measurement, 'temperature') and measurement.temperature is not None:
-            jv.test_temperature = measurement.temperature
 
-        if hasattr(measurement, 'jv_curve') and measurement.jv_curve:
-            from perovskite_solar_cell_database.schema_sections.jv import JVcurve
+        best_curve = None
+        curves = []
 
-            if not jv.jv_curve:
-                jv.jv_curve = []
-            for curve in measurement.jv_curve:
-                if hasattr(curve, 'voltage') and hasattr(curve, 'current_density'):
-                    jv.jv_curve.append(
+        for measurement in measurements:
+            for curve in measurement.jv_curve or []:
+                if curve.voltage is not None and curve.current_density is not None:
+                    curves.append(
                         JVcurve(
-                            cell_name=getattr(curve, 'cell_name', 'Cell'),
+                            cell_name=getattr(curve, 'cell_name', None) or 'Cell',
                             voltage=curve.voltage,
                             current_density=curve.current_density,
                         )
                     )
+
+                if getattr(curve, 'dark', False) or curve.efficiency is None:
+                    continue
+                if best_curve is None or curve.efficiency > best_curve.efficiency:
+                    best_curve = curve
+
+        # Rebuild rather than append: normalize() runs repeatedly on the same archive.
+        if curves:
+            jv.jv_curve = curves
+
+        if best_curve is None:
+            if logger and measurements:
+                logger.info(
+                    'No JV curve with an efficiency found; '
+                    'leaving the default JV parameters unset.'
+                )
+            return
+
+        jv.default_PCE = best_curve.efficiency
+        if best_curve.open_circuit_voltage is not None:
+            jv.default_Voc = best_curve.open_circuit_voltage
+        if best_curve.short_circuit_current_density is not None:
+            jv.default_Jsc = best_curve.short_circuit_current_density
+        if best_curve.fill_factor is not None:
+            jv.default_FF = best_curve.fill_factor
+        if best_curve.light_intensity is not None:
+            jv.light_intensity = best_curve.light_intensity
 
     def _populate_from_eqe(self, measurement):
         jv = self.jv
@@ -449,8 +486,21 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
 
     def _populate_from_mppt(self, measurement):
         jv = self.jv
-        if hasattr(measurement, 'efficiency') and measurement.efficiency is not None and not jv.default_PCE:
-            jv.default_PCE = measurement.efficiency
+
+        # Only a fallback: a JV-derived PCE always wins. Note `is not None` rather than a
+        # truth test, so that a legitimately measured 0 % PCE is not overwritten.
+        if jv.default_PCE is not None:
+            return
+
+        # MPPTracking.efficiency is the efficiency *over time*, not a scalar; the
+        # stabilised value is the last valid point of the track.
+        efficiency = measurement.efficiency
+        if efficiency is None or len(efficiency) == 0:
+            return
+
+        stabilised = [float(value) for value in efficiency if math.isfinite(float(value))]
+        if stabilised:
+            jv.default_PCE = stabilised[-1]
 
 
 m_package.__init_metainfo__()
