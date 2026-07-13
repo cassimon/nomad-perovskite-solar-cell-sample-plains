@@ -1,3 +1,4 @@
+import datetime
 import math
 
 from nomad.app.v1.models import MetadataPagination
@@ -83,6 +84,18 @@ STEP_TYPES = MEnum(
 
 
 class DepositionStep(ProcessStep):
+    """
+    One step of a `DepositionRoutine`.
+
+    This is a plain `ProcessStep` in the NOMAD ELN workflow sense: the step is
+    positioned in time by the inherited `start_time` and `duration`, which is
+    what `Process.normalize` and `ActivityStep.to_task` (and therefore
+    `archive.workflow2.tasks`) build the workflow from. `duration` is the time
+    until the *next* step starts -- for the last step, the time until the end of
+    the routine -- not the time the sample spent on the hotplate; the latter is
+    `annealing_time`.
+    """
+
     m_def = Section(label='Deposition Step')
 
     step_index = Quantity(type=int, a_eln=ELNAnnotation(component='NumberEditQuantity'))
@@ -90,12 +103,20 @@ class DepositionStep(ProcessStep):
         type=STEP_TYPES,
         a_eln=ELNAnnotation(component='EnumEditQuantity'),
     )
-    name = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
     color = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
-    timestamp = Quantity(type=Datetime, a_eln=ELNAnnotation(component='DateTimeEditQuantity'))
+    # Redeclared only to carry the `timestamp` alias: archives uploaded before
+    # this schema moved onto the canonical workflow field still carry the step
+    # start as `timestamp`, and the alias keeps them readable.
+    start_time = Quantity(
+        type=Datetime,
+        aliases=['timestamp'],
+        description='When this step was started.',
+        a_eln=ELNAnnotation(component='DateTimeEditQuantity', label='starting time'),
+    )
     duration = Quantity(
         type=float,
         unit='minute',
+        description='Time from the start of this step until the start of the next one.',
         a_eln=ELNAnnotation(component='NumberEditQuantity', defaultDisplayUnit='minute'),
     )
     deposition_method = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
@@ -132,38 +153,54 @@ class DepositionStep(ProcessStep):
 
 
 class DepositionRoutine(Process):
+    """
+    The sequence of `DepositionStep`s a substrate went through.
+
+    `datetime` is the start of the routine and `end_time` its end -- the two
+    quantities `Process` already defines; there is no separate `start_time` on a
+    `Process` (only its *steps* have one), which is why the ELN order below and
+    the normalization use `datetime`.
+    """
+
     m_def = Section(
         label='Deposition Routine',
         a_eln=dict(
             properties=dict(
-                order=['name', 'lab_id', 'datetime', 'substrate_entity', 'samples', 'start_time', 'end_time', 'steps']
+                order=['name', 'lab_id', 'datetime', 'end_time', 'samples', 'steps']
             )
         ),
     )
 
-    # substrate_entity = Quantity(
-    #     type=Reference(SubstrateEntity.m_def),
-    #     description='Substrate used by this routine.',
-    #     a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
-    # )
-
     steps = SubSection(section_def=DepositionStep, repeats=True)
 
     def normalize(self, archive, logger):
+        # Order the steps *before* the base normalization runs: `Activity.normalize`
+        # turns `self.steps` into `archive.workflow2.tasks` in list order, so an
+        # unsorted list would produce an out-of-order workflow.
+        indexed = [step for step in self.steps if step.step_index is not None]
+        if self.steps and len(indexed) == len(self.steps):
+            self.steps = sorted(self.steps, key=lambda step: step.step_index)
+
+        start_times = [
+            step.start_time for step in self.steps if step.start_time is not None
+        ]
+        if start_times and self.datetime is None:
+            self.datetime = min(start_times)
+
+        # `Process.normalize` back-fills any missing step start_time from
+        # `datetime` + the preceding durations, and sets `end_time` from the last
+        # step's end when it is still unset -- so both only need seeding here.
         if archive is not None:
             super().normalize(archive, logger)
 
-        if not self.steps:
-            return
-
-        timestamps = [step.timestamp for step in self.steps if step.timestamp is not None]
-        if timestamps:
-            self.start_time = min(timestamps)
-            self.end_time = max(timestamps)
-
-        indexed = [step for step in self.steps if step.step_index is not None]
-        if len(indexed) == len(self.steps):
-            self.steps = sorted(self.steps, key=lambda step: step.step_index)
+        if self.end_time is None and start_times:
+            last = self.steps[-1]
+            end = last.start_time if last.start_time is not None else max(start_times)
+            if last.duration is not None:
+                end = end + datetime.timedelta(
+                    seconds=float(last.duration.to('second').magnitude)
+                )
+            self.end_time = end
 
 
 class GasQuenchingParameters(ArchiveSection):
@@ -174,9 +211,15 @@ class GasQuenchingParameters(ArchiveSection):
         unit='liter/minute',
         a_eln=ELNAnnotation(component='NumberEditQuantity'),
     )
+    velocity = Quantity(
+        type=float,
+        unit='meter/second',
+        description='Gas velocity at the nozzle, when the flow is specified as a velocity rather than a volumetric flow rate.',
+        a_eln=ELNAnnotation(component='NumberEditQuantity', defaultDisplayUnit='meter/second'),
+    )
     height = Quantity(
         type=float,
-        unit='centimeter',
+        unit='millimeter',
         a_eln=ELNAnnotation(component='NumberEditQuantity', defaultDisplayUnit='millimeter'),
     )
     nozzle_width = Quantity(
@@ -189,6 +232,11 @@ class GasQuenchingParameters(ArchiveSection):
 
 class AntisolventQuenchingParameters(ArchiveSection):
     media = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
+    media_pubchem_cid = Quantity(
+        type=str,
+        description='PubChem CID of the antisolvent, when the lab software resolved one.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
     deposition_method = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
     flow_rate = Quantity(
         type=float,
@@ -235,7 +283,14 @@ class VacuumQuenchingParameters(ArchiveSection):
 class QuenchingParameters(ArchiveSection):
     m_def = Section(
         label='Quenching Parameters',
-        a_eln=dict(properties=dict(order=['gas', 'antisolvent', 'vacuum'])),
+        a_eln=dict(properties=dict(order=['time_until_start', 'gas', 'antisolvent', 'vacuum'])),
+    )
+
+    time_until_start = Quantity(
+        type=float,
+        unit='second',
+        description='Time from the start of the deposition step until the quenching was applied.',
+        a_eln=ELNAnnotation(component='NumberEditQuantity', defaultDisplayUnit='second'),
     )
 
     gas = SubSection(section_def=GasQuenchingParameters)
