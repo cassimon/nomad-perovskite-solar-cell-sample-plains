@@ -6,18 +6,25 @@ measurement entries (`jv_curve`, `eqe_data`, and MPPTracking's native `time` /
 stayed unset.
 """
 
+import logging
+
 import numpy as np
 import pytest
 from baseclasses.solar_energy import SolarCellEQECustom
 from baseclasses.solar_energy.eqemeasurement import EQEMeasurement
 from baseclasses.solar_energy.jvmeasurement import JVMeasurement, SolarCellJVCurveCustom
 from baseclasses.solar_energy.mpp_tracking import MPPTracking, StabilityFiguresOfMerit
+from nomad.datamodel import EntryArchive, EntryMetadata, User
 from nomad.units import ureg
+from perovskite_solar_cell_database.schema_sections.cell import Cell
 from perovskite_solar_cell_database.schema_sections.jv import JV
 
 from nomad_perovskite_solar_cell_sample_plains.schema_packages.sample import (
     PerovskiteSolarCellSampleArea,
+    SubstrateSample,
 )
+
+LOGGER = logging.getLogger('test')
 
 
 @pytest.fixture
@@ -170,3 +177,182 @@ def test_a_jv_derived_pce_still_beats_the_mppt_fallback(sample):
     assert sample.jv.default_PCE == pytest.approx(3.67)
     # …but the stabilised value is still recorded in its own place.
     assert sample.stabilised.performance_PCE == pytest.approx(0.5)
+
+
+# ── Solar Cell Properties ─────────────────────────────────────────────────────
+
+
+def archive_for(section):
+    archive = EntryArchive(metadata=EntryMetadata(entry_id='e', upload_id='u'))
+    archive.data = section
+    return archive
+
+
+class _LoadingContext:
+    """An m_context that hands back the JV measurement the search "found"."""
+
+    def __init__(self):
+        self.loaded = []
+
+    def load_archive(self, entry_id, upload_id, _):
+        self.loaded.append((entry_id, upload_id))
+        return type('A', (), {'data': chose_measurement()})()
+
+
+def _one_hit():
+    """A search response: `MetadataResponse.data` is a list of plain dicts."""
+    return type('R', (), {'data': [{'entry_id': 'e1', 'upload_id': 'u1'}]})()
+
+
+def _stub_figure():
+    return type('F', (), {'to_plotly_json': lambda self: {'data': [], 'layout': {}}})()
+
+
+def test_the_solar_cell_properties_panel_is_populated(sample):
+    """The panel the user saw as "unavailable".
+
+    It is filled by `JV.normalize`, which copies default_PCE/Voc/Jsc/FF and
+    light_intensity into results. NOMAD's MetainfoNormalizer walks the archive
+    post-order, so it had already run `JV.normalize` -- against an empty `jv` --
+    *before* the sample's own normalize got the chance to fill it from the linked
+    measurements. Hence the explicit re-normalize.
+    """
+    archive = archive_for(sample)
+    sample._populate_from_jv([chose_measurement()])
+    sample.jv.light_intensity = 100.0 * ureg('mW/cm**2')
+
+    sample._normalize_populated_sections(archive, LOGGER)
+
+    solar_cell = archive.results.properties.optoelectronic.solar_cell
+    assert solar_cell.efficiency == pytest.approx(3.67)
+    assert solar_cell.open_circuit_voltage.to('V').magnitude == pytest.approx(0.539999)
+    assert solar_cell.fill_factor == pytest.approx(0.3261)
+    assert solar_cell.illumination_intensity.to('mW/cm**2').magnitude == pytest.approx(
+        100.0
+    )
+
+
+def test_the_stack_figure_is_drawn_from_the_populated_jv(sample, monkeypatch):
+    """The figure was built *before* the JV was populated, so every performance
+    value it annotates rendered as N/A."""
+    captured = {}
+
+    def fake_figure(**kwargs):
+        captured.update(kwargs)
+        return _stub_figure()
+
+    monkeypatch.setattr(
+        'nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.'
+        'create_cell_stack_figure',
+        fake_figure,
+    )
+    monkeypatch.setattr(
+        'nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.search',
+        lambda **kwargs: _one_hit(),
+    )
+
+    sample.cell = Cell(stack_sequence='SLG | ITO | SnO2 | Perovskite | Spiro | Au')
+    archive = archive_for(sample)
+    archive.metadata.main_author = User(user_id='user-1')
+    archive.m_context = _LoadingContext()
+
+    sample.normalize(archive, LOGGER)
+
+    # The figure saw the measured performance, not None.
+    assert captured['efficiency'] == pytest.approx(3.67)
+    assert captured['voc'].to('V').magnitude == pytest.approx(0.539999)
+    assert sample.figures
+
+
+def test_eqe_uses_the_databases_capital_j_spelling(sample):
+    """`integrated_Jsc` / `integrated_J0rad` on the target section; the source
+    spells them lower-case. Copying under the source's name meant the guard in
+    _populate_from_eqe dropped both."""
+    data = SolarCellEQECustom(
+        photon_energy_array=np.linspace(1.3, 3.0, 40),
+        raw_photon_energy_array=np.linspace(1.3, 3.0, 40),
+        eqe_array=np.linspace(0.05, 0.85, 40),
+        raw_eqe_array=np.linspace(0.05, 0.85, 40),
+    )
+    data.bandgap_eqe = 1.72 * ureg('eV')
+    data.integrated_jsc = 21.0 * ureg('A/m**2')
+
+    measurement = EQEMeasurement()
+    measurement.eqe_data = [data]
+
+    sample._populate_from_eqe(measurement)
+
+    assert sample.eqe.integrated_Jsc is not None
+    assert sample.eqe.integrated_Jsc.to('A/m**2').magnitude == pytest.approx(21.0)
+
+
+# ── Searching for the linked measurements ─────────────────────────────────────
+
+
+def test_the_search_can_actually_match_an_unpublished_upload(sample, monkeypatch):
+    """`owner='visible'` with no user_id means *published* entries only -- and a
+    fresh upload is never published, so this search returned nothing, always."""
+    calls = {}
+
+    class _Results:
+        data = []
+
+    def fake_search(**kwargs):
+        calls.update(kwargs)
+        return _Results()
+
+    monkeypatch.setattr(
+        'nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.search',
+        fake_search,
+    )
+
+    archive = archive_for(sample)
+    archive.metadata.main_author = User(user_id='user-1')
+    archive.m_context = object()
+
+    sample._populate_jv_from_measurements(archive, LOGGER)
+
+    assert calls['owner'] == 'all'
+    assert calls['user_id'] == 'user-1'
+
+
+def test_a_search_hit_is_read_as_the_dict_it_is(sample, monkeypatch):
+    """MetadataResponse.data is a list of dicts. Reading `hit.entry_id` raised an
+    AttributeError that the per-hit `except` swallowed, so even a hit that *was*
+    found never got loaded."""
+    monkeypatch.setattr(
+        'nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.search',
+        lambda **kwargs: _one_hit(),
+    )
+
+    archive = archive_for(sample)
+    archive.metadata.main_author = User(user_id='user-1')
+    archive.m_context = _LoadingContext()
+
+    sample._populate_jv_from_measurements(archive, LOGGER)
+
+    assert archive.m_context.loaded == [('e1', 'u1')]
+    # …and the measurement it loaded was actually used.
+    assert sample.jv.default_PCE == pytest.approx(3.67)
+
+
+# ── The substrate is not a solar cell ─────────────────────────────────────────
+
+
+def test_a_substrate_does_not_grow_a_solar_cell_section():
+    """`Substrate.normalize` calls `add_solar_cell(archive)` unconditionally, which
+    gave every bare substrate entry a "Solar Cell Properties" panel -- and made it
+    match the solar-cell filters of the overview plots."""
+    substrate = SubstrateSample()
+    substrate.substrate = substrate.m_def.all_properties['substrate'].sub_section.section_cls(
+        stack_sequence='SLG | ITO'
+    )
+    archive = archive_for(substrate)
+
+    substrate.normalize(archive, LOGGER)
+
+    assert (
+        archive.results is None
+        or archive.results.properties is None
+        or archive.results.properties.optoelectronic is None
+    )

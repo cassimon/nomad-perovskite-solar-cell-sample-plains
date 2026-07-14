@@ -306,6 +306,28 @@ class ExtendedPerovskiteDeposition(PerovskiteDeposition):
         description='Quenching step applied after perovskite deposition.',
     )
 
+class SubstrateInfo(Substrate):
+    """The database's `Substrate`, minus its results side effect.
+
+    `Substrate.normalize` calls `add_solar_cell(archive)` unconditionally, which
+    creates `results.properties.optoelectronic.solar_cell` on whatever archive it
+    is normalized in. On a `SubstrateSample` that is wrong twice over: the entry
+    grows an empty "Solar Cell Properties" panel, and -- worse -- bare substrates
+    then match the solar-cell filters of the perovskite-database overview plots
+    and are counted as devices.
+
+    Everything the base normalize does is that side effect (it only copies
+    `stack_sequence` into the results section), so overriding it to a no-op loses
+    nothing: the quantities themselves are still stored and searchable on the
+    entry.
+    """
+
+    m_def = Section(label='Substrate')
+
+    def normalize(self, archive, logger):
+        pass
+
+
 class SubstrateSample(CompositeSystem):
     m_def = Section(
         label='Substrate',
@@ -313,7 +335,7 @@ class SubstrateSample(CompositeSystem):
     )
 
     substrate = SubSection(
-        section_def=Substrate,
+        section_def=SubstrateInfo,
         description='Physical and chemical description of the substrate.',
     )
 
@@ -368,55 +390,105 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
     def normalize(self, archive, logger):
         super().normalize(archive, logger)
 
-        if self.cell is not None and self.cell.stack_sequence:
-            layers = self.cell.stack_sequence.split(' | ')
-            thicknesses = []
-            colors = []
-            gray_shades = ['#D3D3D3', '#BEBEBE', '#A9A9A9', '#909090']
-            gray_index = 0
+        # Order matters, and it is the reverse of what it used to be.
+        #
+        # NOMAD's MetainfoNormalizer walks the archive *post-order*: every
+        # subsection is normalized before its parent. So by the time we get here,
+        # `self.jv.normalize()` has already run -- against an empty `jv`, because
+        # `jv` is only filled below, from the linked measurement entries. It is
+        # `JV.normalize` that copies default_PCE/Voc/Jsc/FF and light_intensity
+        # into `results.properties.optoelectronic.solar_cell` (the "Solar Cell
+        # Properties" panel and the source of the perovskite-database overview
+        # plots), which is why that panel stayed empty. Sections we *create* here
+        # (eqe, stability, stabilised) were never normalized at all.
+        #
+        # So: populate first, then re-normalize the sections we touched by hand,
+        # then draw the figure from the values that are now actually there.
+        self._populate_jv_from_measurements(archive, logger)
+        self._normalize_populated_sections(archive, logger)
+        self._build_stack_figure(logger)
 
-            for i, layer in enumerate(layers):
-                if i == 0:
-                    thicknesses.append(1.0)
-                    colors.append('lightblue')
-                elif 'Perovskite' in layer:
-                    thicknesses.append(0.5)
-                    colors.append('red')
-                elif i == len(layers) - 1:
-                    thicknesses.append(0.1)
-                    colors.append('orange')
-                else:
-                    thicknesses.append(0.1)
-                    colors.append(gray_shades[gray_index % len(gray_shades)])
-                    gray_index += 1
-
-            efficiency = self.jv.default_PCE if self.jv else None
-            voc = self.jv.default_Voc if self.jv else None
-            jsc = self.jv.default_Jsc if self.jv else None
-            ff = self.jv.default_FF if self.jv else None
-
+    def _normalize_populated_sections(self, archive, logger):
+        """Re-run the database sections' own normalize, now that they hold data."""
+        for section in (self.jv, self.eqe, self.stability, self.stabilised):
+            if section is None:
+                continue
             try:
-                fig = create_cell_stack_figure(
-                    layers=layers,
-                    thicknesses=thicknesses,
-                    colors=colors,
-                    efficiency=efficiency,
-                    voc=voc,
-                    jsc=jsc,
-                    ff=ff,
-                    x_min=0,
-                    x_max=10,
-                    y_min=0,
-                    y_max=10,
-                )
-                self.figures = [PlotlyFigure(figure=fig.to_plotly_json())]
-            except (TypeError, ValueError) as e:
+                section.normalize(archive, logger)
+            except Exception as e:
+                if logger:
+                    logger.warning(
+                        f'Could not normalize {section.m_def.name}: {e}', exc_info=e
+                    )
+
+        # An EQE-derived band gap belongs on the perovskite, and only `Perovskite`
+        # .normalize carries it into `results.properties.electronic`.
+        bandgap = self.eqe.bandgap_eqe if self.eqe is not None else None
+        if self.perovskite is not None and bandgap is not None and not self.perovskite.band_gap:
+            self.perovskite.band_gap = str(bandgap.to('eV').magnitude)
+            self.perovskite.band_gap_estimation_basis = 'EQE'
+            try:
+                self.perovskite.normalize(archive, logger)
+            except Exception as e:
+                if logger:
+                    logger.warning(f'Could not normalize perovskite: {e}', exc_info=e)
+
+    def _build_stack_figure(self, logger):
+        """The layer stack, annotated with the device's JV performance.
+
+        Drawn last, so the annotations read the populated `jv` rather than the
+        empty one -- that is why every value used to render as N/A.
+        """
+        if self.cell is None or not self.cell.stack_sequence:
+            return
+
+        layers = self.cell.stack_sequence.split(' | ')
+        thicknesses = []
+        colors = []
+        gray_shades = ['#D3D3D3', '#BEBEBE', '#A9A9A9', '#909090']
+        gray_index = 0
+
+        for i, layer in enumerate(layers):
+            if i == 0:
+                thicknesses.append(1.0)
+                colors.append('lightblue')
+            elif 'Perovskite' in layer:
+                thicknesses.append(0.5)
+                colors.append('red')
+            elif i == len(layers) - 1:
+                thicknesses.append(0.1)
+                colors.append('orange')
+            else:
+                thicknesses.append(0.1)
+                colors.append(gray_shades[gray_index % len(gray_shades)])
+                gray_index += 1
+
+        efficiency = self.jv.default_PCE if self.jv else None
+        voc = self.jv.default_Voc if self.jv else None
+        jsc = self.jv.default_Jsc if self.jv else None
+        ff = self.jv.default_FF if self.jv else None
+
+        try:
+            fig = create_cell_stack_figure(
+                layers=layers,
+                thicknesses=thicknesses,
+                colors=colors,
+                efficiency=efficiency,
+                voc=voc,
+                jsc=jsc,
+                ff=ff,
+                x_min=0,
+                x_max=10,
+                y_min=0,
+                y_max=10,
+            )
+            self.figures = [PlotlyFigure(figure=fig.to_plotly_json())]
+        except (TypeError, ValueError) as e:
+            if logger:
                 logger.warning(
                     'Could not create cell stack figure.',
                     exc_info=e,
                 )
-
-        self._populate_jv_from_measurements(archive, logger)
 
     def _populate_jv_from_measurements(self, archive, logger):
         if archive is None or archive.m_context is None:
@@ -425,14 +497,28 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
         if not hasattr(archive, 'metadata') or not hasattr(archive.metadata, 'entry_id'):
             return
 
+        # `owner='visible'` means *published* entries plus the ones `user_id` may
+        # view -- and with `user_id=None` that first clause is all there is. A
+        # freshly uploaded (unpublished) measurement is therefore never matched,
+        # so this search returned nothing, every time. Search as the upload's
+        # author over everything they own, which is what baseclasses does.
+        main_author = getattr(archive.metadata, 'main_author', None)
+        user_id = getattr(main_author, 'user_id', None)
+        if user_id is None:
+            if logger:
+                logger.warning(
+                    'No main_author on the archive; cannot search for linked '
+                    'measurements.'
+                )
+            return
+
         try:
             results = search(
-                owner='visible',
+                owner='all',
                 query={'entry_references.target_entry_id': archive.metadata.entry_id},
                 pagination=MetadataPagination(page_size=100),
-                required=MetadataRequired(
-        include=['entry_id', 'upload_id']
-    ),
+                required=MetadataRequired(include=['entry_id', 'upload_id']),
+                user_id=user_id,
             )
         except Exception as e:
             if logger:
@@ -446,9 +532,14 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
         eqe_measurements = []
         mppt_measurements = []
 
+        # A search hit is a plain dict (MetadataResponse.data is list[dict]).
+        # Reading it as an object raised AttributeError into the except below, so
+        # even a hit that *was* found never got loaded.
         for hit in results.data:
             try:
-                ref_archive = archive.m_context.load_archive(hit.entry_id, hit.upload_id, None)
+                ref_archive = archive.m_context.load_archive(
+                    hit['entry_id'], hit['upload_id'], None
+                )
                 entry = ref_archive.data
                 if entry is None:
                     continue
@@ -649,23 +740,27 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
         eqe = self.eqe
         eqe.measured = True
 
-        for attribute in (
-            'bandgap_eqe',
-            'integrated_jsc',
-            'integrated_j0rad',
-            'voc_rad',
-            'urbach_energy',
-            'eqe_array',
-            'photon_energy_array',
-            'wavelength_array',
-            'raw_eqe_array',
-            'raw_photon_energy_array',
-            'raw_wavelength_array',
-            'light_bias',
+        # source (baseclasses SolarCellEQECustom) -> target (database EQE).
+        # The two integrated quantities are spelled with a capital J on the target
+        # ('integrated_Jsc', 'integrated_J0rad'); copying them under the source's
+        # lower-case name meant the all_properties guard below dropped them both.
+        for source, target in (
+            ('bandgap_eqe', 'bandgap_eqe'),
+            ('integrated_jsc', 'integrated_Jsc'),
+            ('integrated_j0rad', 'integrated_J0rad'),
+            ('voc_rad', 'voc_rad'),
+            ('urbach_energy', 'urbach_energy'),
+            ('eqe_array', 'eqe_array'),
+            ('photon_energy_array', 'photon_energy_array'),
+            ('wavelength_array', 'wavelength_array'),
+            ('raw_eqe_array', 'raw_eqe_array'),
+            ('raw_photon_energy_array', 'raw_photon_energy_array'),
+            ('raw_wavelength_array', 'raw_wavelength_array'),
+            ('light_bias', 'light_bias'),
         ):
-            value = getattr(data, attribute, None)
-            if value is not None and eqe.m_def.all_properties.get(attribute) is not None:
-                setattr(eqe, attribute, value)
+            value = getattr(data, source, None)
+            if value is not None and eqe.m_def.all_properties.get(target) is not None:
+                setattr(eqe, target, value)
 
     def _populate_from_mppt(self, measurement):
         """Populate the sample's `stability` and `stabilised` sections from an MPP track."""
