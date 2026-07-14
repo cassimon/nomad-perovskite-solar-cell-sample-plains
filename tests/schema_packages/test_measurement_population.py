@@ -15,11 +15,18 @@ from baseclasses.solar_energy.eqemeasurement import EQEMeasurement
 from baseclasses.solar_energy.jvmeasurement import JVMeasurement, SolarCellJVCurveCustom
 from baseclasses.solar_energy.mpp_tracking import MPPTracking, StabilityFiguresOfMerit
 from nomad.datamodel import EntryArchive, EntryMetadata, User
+from nomad.datamodel.metainfo.basesections import CompositeSystemReference
+from nomad.datamodel.metainfo.plot import PlotlyFigure
 from nomad.units import ureg
+from nomad.utils import generate_entry_id
 from perovskite_solar_cell_database.schema_sections.cell import Cell
 from perovskite_solar_cell_database.schema_sections.jv import JV
 
 from nomad_perovskite_solar_cell_sample_plains.schema_packages.sample import (
+    EQE_OVERVIEW_LABEL,
+    JV_OVERVIEW_LABEL,
+    STABILITY_OVERVIEW_LABEL,
+    STACK_FIGURE_LABEL,
     PerovskiteSolarCellSampleArea,
     SubstrateSample,
 )
@@ -286,6 +293,125 @@ def test_eqe_uses_the_databases_capital_j_spelling(sample):
     assert sample.eqe.integrated_Jsc.to('A/m**2').magnitude == pytest.approx(21.0)
 
 
+# ── Performance statistics and the overview figures ───────────────────────────
+
+
+def test_the_statistics_span_every_scan_of_every_measurement(sample):
+    """`jv` describes the single best curve, which says nothing about spread. These
+    are per KPI over all scans -- the best FF and the best PCE need not be the same
+    scan."""
+    sample._populate_performance_statistics([chose_measurement(), chose_measurement()])
+    statistics = sample.performance_statistics
+
+    assert statistics.number_of_jv_scans == 4  # two measurements, FW + RV each
+    assert statistics.pce_best == pytest.approx(3.67)
+    assert statistics.pce_worst == pytest.approx(2.12)
+    assert statistics.pce_average == pytest.approx((3.67 + 2.12) / 2)
+    assert statistics.voc_best.to('V').magnitude == pytest.approx(0.539999)
+    assert statistics.jsc_worst.to('mA/cm**2').magnitude == pytest.approx(15.754854)
+    assert statistics.ff_average == pytest.approx((0.3261 + 0.2538) / 2)
+
+
+def test_a_dark_scan_is_not_a_performance(sample):
+    measurement = JVMeasurement()
+    lit = scan('RV', efficiency=3.67, voc=0.54, jsc=20.8, ff=0.33)
+    dark = scan('RV dark', efficiency=0.01, voc=0.0, jsc=0.0, ff=0.0)
+    dark.dark = True
+    measurement.jv_curve = [lit, dark]
+
+    sample._populate_performance_statistics([measurement])
+
+    assert sample.performance_statistics.number_of_jv_scans == 1
+    assert sample.performance_statistics.pce_worst == pytest.approx(3.67)
+
+
+def test_no_scans_means_no_statistics_section(sample):
+    sample.performance_statistics = None
+    sample._populate_performance_statistics([JVMeasurement()])
+    assert sample.performance_statistics is None
+
+
+class _AllKindsContext:
+    """An m_context handing back one measurement of each kind."""
+
+    def __init__(self):
+        eqe = EQEMeasurement()
+        eqe.name = 'eqe run'
+        eqe.eqe_data = [
+            SolarCellEQECustom(
+                photon_energy_array=np.linspace(1.3, 3.0, 40),
+                raw_photon_energy_array=np.linspace(1.3, 3.0, 40),
+                eqe_array=np.linspace(0.05, 0.85, 40),
+                raw_eqe_array=np.linspace(0.05, 0.85, 40),
+            )
+        ]
+
+        mppt = MPPTracking()
+        mppt.name = 'mpp run'
+        mppt.time = np.linspace(0, 3600, 5) * ureg('s')
+        mppt.efficiency = np.linspace(10.0, 9.0, 5)
+
+        self.entries = {
+            'jv': chose_measurement(),
+            'eqe': eqe,
+            'mppt': mppt,
+        }
+
+    def load_archive(self, entry_id, upload_id, _):
+        return type('A', (), {'data': self.entries[entry_id]})()
+
+
+def _hits(*entry_ids):
+    return type(
+        'R',
+        (),
+        {'data': [{'entry_id': entry_id, 'upload_id': 'u'} for entry_id in entry_ids]},
+    )()
+
+
+def test_the_sample_plots_every_measurement_made_on_it(sample, monkeypatch):
+    """One figure per measurement kind, each holding all measurements of that kind."""
+    monkeypatch.setattr(
+        'nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.search',
+        lambda **kwargs: _hits('jv', 'eqe', 'mppt'),
+    )
+
+    sample.cell = Cell(stack_sequence='SLG | ITO | SnO2 | Perovskite | Spiro | Au')
+    archive = archive_for(sample)
+    archive.metadata.main_author = User(user_id='user-1')
+    archive.m_context = _AllKindsContext()
+
+    sample.normalize(archive, LOGGER)
+
+    assert [figure.label for figure in sample.figures] == [
+        STACK_FIGURE_LABEL,
+        JV_OVERVIEW_LABEL,
+        STABILITY_OVERVIEW_LABEL,
+        EQE_OVERVIEW_LABEL,
+    ]
+    # The JV overview holds both scans of the measurement, and the statistics.
+    jv_figure = sample.figures[1].figure
+    assert len(jv_figure['data']) == 2
+    assert 'PCE (%): 3.67' in jv_figure['layout']['annotations'][0]['text']
+
+
+def test_a_kind_that_was_never_measured_gets_no_figure(sample, monkeypatch):
+    """An empty plot is worse than no plot."""
+    monkeypatch.setattr(
+        'nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.search',
+        lambda **kwargs: _hits('jv'),
+    )
+
+    archive = archive_for(sample)
+    archive.metadata.main_author = User(user_id='user-1')
+    archive.m_context = _AllKindsContext()
+
+    sample.normalize(archive, LOGGER)
+
+    # No stack sequence either, so the JV overview is the only figure.
+    assert [figure.label for figure in sample.figures] == [JV_OVERVIEW_LABEL]
+
+
 # ── Searching for the linked measurements ─────────────────────────────────────
 
 
@@ -337,6 +463,130 @@ def test_a_search_hit_is_read_as_the_dict_it_is(sample, monkeypatch):
 
 
 # ── The substrate is not a solar cell ─────────────────────────────────────────
+
+
+def test_the_substrate_shows_the_figures_of_every_device_on_it(monkeypatch):
+    """The substrate is a contact sheet of its pixels: it repeats each device's
+    overview plots, labelled with the device they came from -- not aggregated."""
+    loaded = []
+
+    class _Context:
+        def load_archive(self, entry_id, upload_id, _):
+            loaded.append((entry_id, upload_id))
+            device = PerovskiteSolarCellSampleArea(name=f'device {len(loaded)}')
+            device.figures = [
+                PlotlyFigure(label=STACK_FIGURE_LABEL, figure={'data': [], 'layout': {}}),
+                PlotlyFigure(
+                    label=JV_OVERVIEW_LABEL,
+                    figure={'data': [{'x': [0.0], 'y': [0.0]}], 'layout': {}},
+                ),
+            ]
+            return type('A', (), {'data': device})()
+
+    substrate = SubstrateSample()
+    substrate.cell_areas = [
+        CompositeSystemReference(
+            reference=f'../upload/raw/AI03_dev{index}_sample.archive.yaml#/data'
+        )
+        for index in (1, 2)
+    ]
+    archive = archive_for(substrate)
+    archive.m_context = _Context()
+
+    substrate.normalize(archive, LOGGER)
+
+    # The device archives were loaded by their (deterministic) entry ids.
+    assert loaded == [
+        (generate_entry_id('u', f'AI03_dev{index}_sample.archive.yaml'), 'u')
+        for index in (1, 2)
+    ]
+    # …and each device's overview plot is on the substrate, under its own name.
+    assert [figure.label for figure in substrate.figures] == [
+        f'device 1: {JV_OVERVIEW_LABEL}',
+        f'device 2: {JV_OVERVIEW_LABEL}',
+    ]
+
+
+def test_the_substrate_does_not_repeat_the_stack_of_every_pixel():
+    """Fabrication, not measurement -- and identical for all four pixels."""
+
+    class _Context:
+        def load_archive(self, entry_id, upload_id, _):
+            device = PerovskiteSolarCellSampleArea(name='device 1')
+            device.figures = [
+                PlotlyFigure(label=STACK_FIGURE_LABEL, figure={'data': [], 'layout': {}})
+            ]
+            return type('A', (), {'data': device})()
+
+    substrate = SubstrateSample()
+    substrate.cell_areas = [
+        CompositeSystemReference(
+            reference='../upload/raw/AI03_dev1_sample.archive.yaml#/data'
+        )
+    ]
+    archive = archive_for(substrate)
+    archive.m_context = _Context()
+
+    substrate.normalize(archive, LOGGER)
+
+    assert not substrate.figures
+
+
+def test_a_reference_stated_as_an_archive_url_is_followed_too():
+    """The app writes raw-file references, but a hand-written archive URL already
+    carries the entry id and must not be hashed a second time."""
+    loaded = []
+
+    class _Context:
+        def load_archive(self, entry_id, upload_id, _):
+            loaded.append(entry_id)
+            device = PerovskiteSolarCellSampleArea(name='device 1')
+            device.figures = [
+                PlotlyFigure(label=JV_OVERVIEW_LABEL, figure={'data': [], 'layout': {}})
+            ]
+            return type('A', (), {'data': device})()
+
+    substrate = SubstrateSample()
+    substrate.cell_areas = [
+        CompositeSystemReference(reference='../uploads/u/archive/abc123#/data')
+    ]
+    archive = archive_for(substrate)
+    archive.m_context = _Context()
+
+    substrate.normalize(archive, LOGGER)
+
+    assert loaded == ['abc123']
+    assert substrate.figures
+
+
+def test_one_unreadable_device_does_not_cost_the_substrate_the_others():
+    class _Context:
+        def load_archive(self, entry_id, upload_id, _):
+            if 'dev1' in entry_id or not loaded:
+                loaded.append(entry_id)
+                raise RuntimeError('archive not found')
+            device = PerovskiteSolarCellSampleArea(name='device 2')
+            device.figures = [
+                PlotlyFigure(label=JV_OVERVIEW_LABEL, figure={'data': [], 'layout': {}})
+            ]
+            return type('A', (), {'data': device})()
+
+    loaded = []
+    substrate = SubstrateSample()
+    substrate.cell_areas = [
+        CompositeSystemReference(
+            reference=f'../upload/raw/AI03_dev{index}_sample.archive.yaml#/data'
+        )
+        for index in (1, 2)
+    ]
+    archive = archive_for(substrate)
+    archive.m_context = _Context()
+
+    substrate.normalize(archive, LOGGER)
+
+    assert [figure.label for figure in substrate.figures] == [
+        f'device 2: {JV_OVERVIEW_LABEL}'
+    ]
 
 
 def test_a_substrate_does_not_grow_a_solar_cell_section():

@@ -1,5 +1,7 @@
+import copy
 import datetime
 import math
+from typing import NamedTuple
 
 from nomad.app.v1.models import MetadataPagination
 from nomad.config import config
@@ -30,13 +32,45 @@ from perovskite_solar_cell_database.schema_sections import (
     Stability,
     Stabilised,
 )
-from nomad_perovskite_solar_cell_sample_plains.utils import create_cell_stack_figure
+from nomad_perovskite_solar_cell_sample_plains.utils import (
+    create_cell_stack_figure,
+    create_eqe_overview_figure,
+    create_jv_overview_figure,
+    create_stability_overview_figure,
+)
 
 configuration = config.get_plugin_entry_point(
     'nomad_perovskite_solar_cell_sample_plains.schema_packages:schema_package_entry_point'
 )
 
 m_package = SchemaPackage()
+
+# The figure labels. A `SubstrateSample` mirrors its devices' figures and tells
+# them apart by these, so they are named once, here.
+STACK_FIGURE_LABEL = 'Device stack'
+JV_OVERVIEW_LABEL = 'JV curves (all measurements)'
+STABILITY_OVERVIEW_LABEL = 'MPP tracking (all measurements)'
+EQE_OVERVIEW_LABEL = 'EQE (all measurements)'
+
+
+class LoadedMeasurements(NamedTuple):
+    """The measurement entries that reference a sample, sorted by kind.
+
+    They are loaded once, to derive the sample's JV/EQE/stability sections; the
+    overview figures are then drawn from the same objects rather than loading
+    every archive a second time.
+    """
+
+    jv: list
+    eqe: list
+    mppt: list
+
+    @classmethod
+    def none(cls):
+        return cls([], [], [])
+
+    def __bool__(self):
+        return bool(self.jv or self.eqe or self.mppt)
 
 
 class ImageFile(ArchiveSection):
@@ -328,7 +362,69 @@ class SubstrateInfo(Substrate):
         pass
 
 
-class SubstrateSample(CompositeSystem):
+def _kpi_statistics(values):
+    """(best, worst, average) of a KPI, or None when nothing was measured."""
+    values = [value for value in values if value is not None]
+    if not values:
+        return None
+    # Summed by hand rather than with `sum()`: these carry units, and pint will not
+    # add a bare 0 to a voltage.
+    total = values[0]
+    for value in values[1:]:
+        total = total + value
+    return max(values), min(values), total / len(values)
+
+
+class PerformanceStatistics(ArchiveSection):
+    """Best, worst and average device performance over every JV scan of this sample.
+
+    The database's own `jv` section describes a *single* curve -- the best one --
+    which says nothing about how reproducible the device is. These are computed
+    per KPI over all scans (both directions, all JV measurements), so the best PCE
+    and the best FF need not come from the same scan; each answers "what is the
+    best/worst/typical value this device reached".
+
+    Dark scans and scans without an efficiency are left out.
+    """
+
+    m_def = Section(label='Performance Statistics')
+
+    number_of_jv_scans = Quantity(
+        type=int,
+        description='Number of JV scans these statistics are taken over.',
+        a_eln=ELNAnnotation(component='NumberEditQuantity'),
+    )
+
+    pce_best = Quantity(type=float, description='Highest power conversion efficiency (%).')
+    pce_worst = Quantity(type=float, description='Lowest power conversion efficiency (%).')
+    pce_average = Quantity(type=float, description='Mean power conversion efficiency (%).')
+
+    voc_best = Quantity(type=float, unit='V', description='Highest open-circuit voltage.')
+    voc_worst = Quantity(type=float, unit='V', description='Lowest open-circuit voltage.')
+    voc_average = Quantity(type=float, unit='V', description='Mean open-circuit voltage.')
+
+    jsc_best = Quantity(
+        type=float,
+        unit='mA/cm**2',
+        description='Highest short-circuit current density.',
+    )
+    jsc_worst = Quantity(
+        type=float,
+        unit='mA/cm**2',
+        description='Lowest short-circuit current density.',
+    )
+    jsc_average = Quantity(
+        type=float,
+        unit='mA/cm**2',
+        description='Mean short-circuit current density.',
+    )
+
+    ff_best = Quantity(type=float, description='Highest fill factor (fraction).')
+    ff_worst = Quantity(type=float, description='Lowest fill factor (fraction).')
+    ff_average = Quantity(type=float, description='Mean fill factor (fraction).')
+
+
+class SubstrateSample(CompositeSystem, PlotSection):
     m_def = Section(
         label='Substrate',
         a_eln=dict(properties=dict(order=['name', 'lab_id', 'datetime', 'substrate'])),
@@ -347,6 +443,97 @@ class SubstrateSample(CompositeSystem):
 
     def normalize(self, archive, logger):
         super().normalize(archive, logger)
+        self._mirror_device_figures(archive, logger)
+
+    def _mirror_device_figures(self, archive, logger):
+        """Show the overview plots of every device on this substrate, side by side.
+
+        Not aggregated: each device keeps its own figures, prefixed with the device
+        it belongs to, so the substrate is a contact sheet of its pixels.
+
+        The device figures only exist on the *processed* device archive, so a
+        resolved `cell_areas` reference is of no use here -- resolving one goes
+        through `Context.load_raw_file`, which re-parses the YAML and hands back an
+        archive that never normalized (and so has no figures). Entry ids are
+        deterministic, though, so the processed archive can be loaded directly.
+        This is also why substrates are processed on a level of their own, after
+        the devices (see `parsers/__init__.py`).
+        """
+        context = getattr(archive, 'm_context', None)
+        upload_id = getattr(getattr(archive, 'metadata', None), 'upload_id', None)
+        if context is None or upload_id is None or not self.cell_areas:
+            return
+
+        figures = []
+        for area in self.cell_areas:
+            try:
+                figures.extend(self._device_figures(area, context, upload_id))
+            except Exception as e:
+                if logger:
+                    logger.warning(
+                        f'Could not mirror the figures of a cell area: {e}', exc_info=e
+                    )
+
+        if figures:
+            self.figures = figures
+
+    @staticmethod
+    def _device_entry_id(area, upload_id):
+        """The entry id of the device archive a `cell_areas` entry points at.
+
+        The app writes these references as raw paths (`../upload/raw/<mainfile>`,
+        which the context rewrites to `../upload/<upload_id>/raw/<mainfile>`), and
+        an entry id is a hash of the upload and the mainfile -- so it can be derived
+        without resolving anything. A reference stated as an archive URL already
+        carries the id.
+        """
+        from nomad.utils import generate_entry_id
+
+        target = area.reference
+        if target is None:
+            return None
+
+        # An unresolved reference still knows its URL; a resolved one was loaded
+        # from its raw file, and the archive it lives in records that path.
+        url = getattr(target, 'm_proxy_value', None)
+        if url is None:
+            metadata = getattr(target.m_root(), 'metadata', None)
+            mainfile = getattr(metadata, 'mainfile', None)
+            return generate_entry_id(upload_id, mainfile) if mainfile else None
+
+        path = str(url).split('#', 1)[0]
+        _, is_raw, mainfile = path.partition('/raw/')
+        if is_raw:
+            return generate_entry_id(upload_id, mainfile)
+
+        _, is_archive, entry_id = path.partition('/archive/')
+        return entry_id if is_archive else None
+
+    def _device_figures(self, area, context, upload_id):
+        entry_id = self._device_entry_id(area, upload_id)
+        if not entry_id:
+            return []
+
+        device_archive = context.load_archive(entry_id, upload_id, None)
+        device = getattr(device_archive, 'data', None)
+        if device is None:
+            return []
+
+        name = getattr(device, 'name', None) or getattr(device, 'lab_id', None) or entry_id
+        figures = []
+        for figure in getattr(device, 'figures', None) or []:
+            # The stack is fabrication, not measurement, and is the same for every
+            # pixel of the substrate -- showing it four times says nothing.
+            if figure.label == STACK_FIGURE_LABEL or figure.figure is None:
+                continue
+            figures.append(
+                PlotlyFigure(
+                    label=f'{name}: {figure.label}',
+                    figure=copy.deepcopy(figure.figure),
+                )
+            )
+        return figures
+
 
 class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
     m_def = Section(
@@ -384,6 +571,11 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
     stability = SubSection(section_def=Stability)
     outdoor = SubSection(section_def=Outdoor)
 
+    performance_statistics = SubSection(
+        section_def=PerformanceStatistics,
+        description='Best, worst and average performance over all JV scans.',
+    )
+
     images = SubSection(section_def=ImageFile, repeats=True)
     documents = SubSection(section_def=DocumentFile, repeats=True)
 
@@ -403,10 +595,11 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
         # (eqe, stability, stabilised) were never normalized at all.
         #
         # So: populate first, then re-normalize the sections we touched by hand,
-        # then draw the figure from the values that are now actually there.
-        self._populate_jv_from_measurements(archive, logger)
+        # then draw the figures from the values that are now actually there.
+        measurements = self._populate_jv_from_measurements(archive, logger)
         self._normalize_populated_sections(archive, logger)
-        self._build_stack_figure(logger)
+        self._populate_performance_statistics(measurements.jv, logger)
+        self._build_figures(measurements, logger)
 
     def _normalize_populated_sections(self, archive, logger):
         """Re-run the database sections' own normalize, now that they hold data."""
@@ -433,14 +626,101 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
                 if logger:
                     logger.warning(f'Could not normalize perovskite: {e}', exc_info=e)
 
+    def _populate_performance_statistics(self, measurements, logger=None):
+        """Best / worst / average of each JV KPI, over every scan of this sample.
+
+        Per KPI, not per curve: the best FF and the best PCE may well come from
+        different scans, and both are worth knowing. `jv` already describes the
+        single best curve, which says nothing about spread.
+        """
+        scans = [
+            curve
+            for measurement in measurements
+            for curve in getattr(measurement, 'jv_curve', None) or []
+            if not getattr(curve, 'dark', False) and curve.efficiency is not None
+        ]
+
+        if not scans:
+            # Rebuild rather than keep: normalize() runs repeatedly on the same
+            # archive, and stale statistics are worse than none.
+            self.performance_statistics = None
+            return
+
+        statistics = PerformanceStatistics(number_of_jv_scans=len(scans))
+        for prefix, attribute in (
+            ('pce', 'efficiency'),
+            ('voc', 'open_circuit_voltage'),
+            ('jsc', 'short_circuit_current_density'),
+            ('ff', 'fill_factor'),
+        ):
+            values = _kpi_statistics(
+                [getattr(curve, attribute, None) for curve in scans]
+            )
+            if values is None:
+                continue
+            best, worst, average = values
+            setattr(statistics, f'{prefix}_best', best)
+            setattr(statistics, f'{prefix}_worst', worst)
+            setattr(statistics, f'{prefix}_average', average)
+
+        self.performance_statistics = statistics
+        if logger:
+            logger.info(f'Performance statistics over {len(scans)} JV scans.')
+
+    def _build_figures(self, measurements, logger):
+        """The sample's figures: the device stack, then one overview per measurement kind.
+
+        Drawn last, so the stack's annotations read the populated `jv` rather than
+        the empty one -- that is why every value used to render as N/A. An overview
+        with nothing to show is left out rather than drawn empty.
+        """
+        figures = []
+
+        stack = self._build_stack_figure(logger)
+        if stack is not None:
+            figures.append(PlotlyFigure(label=STACK_FIGURE_LABEL, figure=stack))
+
+        for label, builder, argument in (
+            (
+                JV_OVERVIEW_LABEL,
+                lambda: create_jv_overview_figure(
+                    measurements.jv, self.performance_statistics
+                ),
+                measurements.jv,
+            ),
+            (
+                STABILITY_OVERVIEW_LABEL,
+                lambda: create_stability_overview_figure(measurements.mppt),
+                measurements.mppt,
+            ),
+            (
+                EQE_OVERVIEW_LABEL,
+                lambda: create_eqe_overview_figure(measurements.eqe),
+                measurements.eqe,
+            ),
+        ):
+            if not argument:
+                continue
+            try:
+                figure = builder()
+            except Exception as e:
+                if logger:
+                    logger.warning(f'Could not create the {label} figure: {e}', exc_info=e)
+                continue
+            if figure is not None:
+                figures.append(
+                    PlotlyFigure(label=label, figure=figure.to_plotly_json())
+                )
+
+        self.figures = figures
+
     def _build_stack_figure(self, logger):
         """The layer stack, annotated with the device's JV performance.
 
-        Drawn last, so the annotations read the populated `jv` rather than the
-        empty one -- that is why every value used to render as N/A.
+        Returns the plotly JSON, or None when there is no stack to draw.
         """
         if self.cell is None or not self.cell.stack_sequence:
-            return
+            return None
 
         layers = self.cell.stack_sequence.split(' | ')
         thicknesses = []
@@ -482,20 +762,28 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
                 y_min=0,
                 y_max=10,
             )
-            self.figures = [PlotlyFigure(figure=fig.to_plotly_json())]
+            return fig.to_plotly_json()
         except (TypeError, ValueError) as e:
             if logger:
                 logger.warning(
                     'Could not create cell stack figure.',
                     exc_info=e,
                 )
+            return None
 
     def _populate_jv_from_measurements(self, archive, logger):
-        if archive is None or archive.m_context is None:
-            return
+        """Load every measurement entry that references this sample, and derive from it.
 
-        if not hasattr(archive, 'metadata') or not hasattr(archive.metadata, 'entry_id'):
-            return
+        Returns the loaded measurements, grouped by kind: they are what the overview
+        figures are drawn from, and loading each archive once is the point.
+        """
+        if (
+            archive is None
+            or archive.m_context is None
+            or not hasattr(archive, 'metadata')
+            or not hasattr(archive.metadata, 'entry_id')
+        ):
+            return LoadedMeasurements.none()
 
         # `owner='visible'` means *published* entries plus the ones `user_id` may
         # view -- and with `user_id=None` that first clause is all there is. A
@@ -510,7 +798,7 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
                     'No main_author on the archive; cannot search for linked '
                     'measurements.'
                 )
-            return
+            return LoadedMeasurements.none()
 
         try:
             results = search(
@@ -523,10 +811,10 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
         except Exception as e:
             if logger:
                 logger.warning(f'Failed to search for linked measurements: {e}')
-            return
+            return LoadedMeasurements.none()
 
         if not results.data:
-            return
+            return LoadedMeasurements.none()
 
         jv_measurements = []
         eqe_measurements = []
@@ -552,10 +840,15 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
                     mppt_measurements.append(entry)
             except Exception as e:
                 if logger:
-                    logger.warning(f'Could not load referenced entry {hit.entry_id}: {e}')
+                    logger.warning(
+                        f'Could not load referenced entry {hit.get("entry_id")}: {e}'
+                    )
 
-        if not (jv_measurements or eqe_measurements or mppt_measurements):
-            return
+        measurements = LoadedMeasurements(
+            jv=jv_measurements, eqe=eqe_measurements, mppt=mppt_measurements
+        )
+        if not measurements:
+            return measurements
 
         if not self.jv:
             from perovskite_solar_cell_database.schema_sections.jv import JV as JVSection
@@ -567,6 +860,8 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
             self._populate_from_eqe(measurement)
         for measurement in mppt_measurements:
             self._populate_from_mppt(measurement)
+
+        return measurements
 
     def _populate_from_jv(self, measurements, logger=None):
         """

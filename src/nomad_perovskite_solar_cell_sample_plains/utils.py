@@ -15,7 +15,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+import numpy as np
 import plotly.graph_objects as go
+
+# Wavelength [nm] of a photon of energy 1 eV -- h*c in eV*nm.
+_EV_NM = 1239.841984
+
+# Below this many points a line is invisible, so the markers are drawn as well.
+_SHORT_TRACK = 3
 
 
 def get_reference(upload_id, entry_id):
@@ -208,4 +215,310 @@ def create_cell_stack_figure(  # noqa: PLR0913
         ],
     )
 
+    return fig
+
+
+# ── Overview figures ─────────────────────────────────────────────────────────
+#
+# One figure per measurement kind, holding *every* measurement of that kind made
+# on the sample. The measurement entries themselves each plot their own single
+# run; these combine them, so a device can be read in one place.
+
+
+def to_array(value, unit=None):
+    """A plain float array from a metainfo quantity, or None if there is nothing to plot.
+
+    Array quantities come back as pint quantities; `unit` states the unit the
+    figure works in, so a track in seconds and one in hours end up on the same
+    axis.
+    """
+    if value is None:
+        return None
+    if unit is not None and hasattr(value, 'to'):
+        value = value.to(unit)
+    magnitude = getattr(value, 'magnitude', value)
+    array = np.asarray(magnitude, dtype=np.float64).ravel()
+    if array.size == 0 or not np.any(np.isfinite(array)):
+        return None
+    return array
+
+
+def to_scalar(value, unit=None):
+    """A plain float from a metainfo quantity, or None."""
+    if value is None:
+        return None
+    if unit is not None and hasattr(value, 'to'):
+        value = value.to(unit)
+    magnitude = getattr(value, 'magnitude', value)
+    try:
+        return float(magnitude)
+    except (TypeError, ValueError):
+        return None
+
+
+def _measurement_name(measurement, fallback):
+    return str(getattr(measurement, 'name', None) or fallback)
+
+
+def _hover(title, lines, axes):
+    """A hovertemplate: the trace's fixed facts, then the point under the cursor."""
+    facts = ''.join(f'{line}<br>' for line in lines if line)
+    return f'<b>{title}</b><br>{facts}{axes}<extra></extra>'
+
+
+def _statistics_annotation(statistics):
+    """The best / worst / average KPI box drawn onto the JV overview."""
+
+    def row(label, values, digits=2, factor=1.0):
+        if any(value is None for value in values):
+            return None
+        formatted = ' / '.join(f'{value * factor:.{digits}f}' for value in values)
+        return f'{label}: {formatted}'
+
+    def kpi(prefix, unit=None):
+        return [
+            to_scalar(getattr(statistics, f'{prefix}_{which}'), unit)
+            for which in ('best', 'average', 'worst')
+        ]
+
+    rows = [
+        f'<b>best / average / worst over {statistics.number_of_jv_scans} scans</b>',
+        row('PCE (%)', kpi('pce')),
+        row('V<sub>OC</sub> (V)', kpi('voc', 'V'), digits=3),
+        row('J<sub>SC</sub> (mA/cm²)', kpi('jsc', 'mA/cm**2')),
+        row('FF (%)', kpi('ff'), digits=1, factor=100.0),
+    ]
+    return '<br>'.join(row for row in rows if row)
+
+
+def create_jv_overview_figure(measurements, statistics=None):
+    """Every JV curve measured on this sample, in one plot.
+
+    Returns None when there is nothing to draw, so the caller can leave the
+    figure out entirely rather than showing an empty one.
+    """
+    fig = go.Figure()
+    drawn = 0
+
+    for index, measurement in enumerate(measurements):
+        source = _measurement_name(measurement, f'JV {index + 1}')
+        for curve in getattr(measurement, 'jv_curve', None) or []:
+            voltage = to_array(curve.voltage, 'V')
+            current_density = to_array(curve.current_density, 'mA/cm**2')
+            if voltage is None or current_density is None:
+                continue
+            if len(voltage) != len(current_density):
+                continue
+
+            name = str(getattr(curve, 'cell_name', None) or 'Cell')
+            dark = bool(getattr(curve, 'dark', False))
+            efficiency = to_scalar(curve.efficiency)
+            voc = to_scalar(curve.open_circuit_voltage, 'V')
+            jsc = to_scalar(curve.short_circuit_current_density, 'mA/cm**2')
+            ff = to_scalar(curve.fill_factor)
+
+            facts = [
+                'dark scan' if dark else None,
+                None if efficiency is None else f'PCE = {efficiency:.2f} %',
+                None if voc is None else f'V<sub>OC</sub> = {voc:.3f} V',
+                None if jsc is None else f'J<sub>SC</sub> = {jsc:.2f} mA/cm²',
+                None if ff is None else f'FF = {ff * 100:.1f} %',
+            ]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=voltage,
+                    y=current_density,
+                    mode='lines',
+                    name=name,
+                    legendgroup=source,
+                    legendgrouptitle_text=source,
+                    line=dict(dash='dot', color='#909090') if dark else None,
+                    hovertemplate=_hover(
+                        f'{source} · {name}',
+                        facts,
+                        'V = %{x:.3f} V<br>J = %{y:.2f} mA/cm²',
+                    ),
+                )
+            )
+            drawn += 1
+
+    if not drawn:
+        return None
+
+    annotations = []
+    if statistics is not None:
+        text = _statistics_annotation(statistics)
+        if text:
+            annotations.append(
+                go.layout.Annotation(
+                    text=text,
+                    align='left',
+                    showarrow=False,
+                    x=0.02,
+                    y=0.02,
+                    xref='paper',
+                    yref='paper',
+                    xanchor='left',
+                    yanchor='bottom',
+                    bgcolor='rgba(255, 255, 255, 0.8)',
+                    bordercolor='#909090',
+                    borderwidth=1,
+                    borderpad=6,
+                )
+            )
+
+    fig.update_layout(
+        title='JV curves — all measurements of this sample',
+        xaxis_title='Voltage (V)',
+        yaxis_title='Current density (mA/cm²)',
+        template='plotly_white',
+        hovermode='closest',
+        annotations=annotations,
+    )
+    fig.update_xaxes(zeroline=True, zerolinecolor='#c0c0c0')
+    fig.update_yaxes(zeroline=True, zerolinecolor='#c0c0c0')
+    return fig
+
+
+def create_stability_overview_figure(measurements):
+    """Every MPP track measured on this sample, in one plot.
+
+    The tracked efficiency is drawn as a line. Where the run also sampled JV
+    curves along the way (the CHOSE stability export does), those are drawn as
+    markers on the same axes -- which is the only thing there is to see when the
+    track itself is a single point.
+    """
+    fig = go.Figure()
+    drawn = 0
+
+    for index, measurement in enumerate(measurements):
+        source = _measurement_name(measurement, f'MPP track {index + 1}')
+
+        time = to_array(getattr(measurement, 'time', None), 'hour')
+        efficiency = to_array(getattr(measurement, 'efficiency', None))
+        if time is not None and efficiency is not None and len(time) == len(efficiency):
+            fig.add_trace(
+                go.Scatter(
+                    x=time,
+                    y=efficiency,
+                    mode='lines+markers' if len(time) < _SHORT_TRACK else 'lines',
+                    name='MPP track',
+                    legendgroup=source,
+                    legendgrouptitle_text=source,
+                    hovertemplate=_hover(
+                        source, [], 't = %{x:.2f} h<br>PCE = %{y:.2f} %'
+                    ),
+                )
+            )
+            drawn += 1
+
+        parameters = getattr(measurement, 'jv_parameters', None)
+        if parameters is None:
+            continue
+        # The parameter series already carries its own time axis, in hours.
+        parameter_time = to_array(getattr(parameters, 'time', None), 'hour')
+        if parameter_time is None:
+            continue
+        for attribute, label in (
+            ('efficiency_fw', 'JV forward'),
+            ('efficiency_rv', 'JV reverse'),
+        ):
+            values = to_array(getattr(parameters, attribute, None))
+            if values is None:
+                continue
+            points = min(len(parameter_time), len(values))
+            fig.add_trace(
+                go.Scatter(
+                    x=parameter_time[:points],
+                    y=values[:points],
+                    mode='markers',
+                    name=label,
+                    legendgroup=source,
+                    legendgrouptitle_text=source,
+                    hovertemplate=_hover(
+                        f'{source} · {label}',
+                        [],
+                        't = %{x:.2f} h<br>PCE = %{y:.2f} %',
+                    ),
+                )
+            )
+            drawn += 1
+
+    if not drawn:
+        return None
+
+    fig.update_layout(
+        title='MPP tracking — all measurements of this sample',
+        xaxis_title='Time (h)',
+        yaxis_title='Efficiency (%)',
+        template='plotly_white',
+        hovermode='closest',
+    )
+    return fig
+
+
+def create_eqe_overview_figure(measurements):
+    """Every EQE spectrum measured on this sample, in one plot."""
+    fig = go.Figure()
+    drawn = 0
+
+    for index, measurement in enumerate(measurements):
+        source = _measurement_name(measurement, f'EQE {index + 1}')
+        spectra = getattr(measurement, 'eqe_data', None) or []
+
+        for spectrum_index, spectrum in enumerate(spectra):
+            eqe = to_array(getattr(spectrum, 'eqe_array', None))
+            if eqe is None:
+                continue
+
+            wavelength = to_array(getattr(spectrum, 'wavelength_array', None), 'nm')
+            if wavelength is None:
+                # `wavelength_array` is derived in the spectrum's own normalize; a
+                # spectrum that never ran it still states its photon energy.
+                photon_energy = to_array(
+                    getattr(spectrum, 'photon_energy_array', None), 'eV'
+                )
+                if photon_energy is None:
+                    continue
+                wavelength = _EV_NM / photon_energy
+            if len(wavelength) != len(eqe):
+                continue
+
+            name = source if len(spectra) == 1 else f'{source} #{spectrum_index + 1}'
+            bandgap = to_scalar(getattr(spectrum, 'bandgap_eqe', None), 'eV')
+            integrated_jsc = to_scalar(
+                getattr(spectrum, 'integrated_jsc', None), 'mA/cm**2'
+            )
+            facts = [
+                None if bandgap is None else f'band gap = {bandgap:.3f} eV',
+                None
+                if integrated_jsc is None
+                else f'integrated J<sub>SC</sub> = {integrated_jsc:.2f} mA/cm²',
+            ]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=wavelength,
+                    # The spectrum is stored as a fraction; the plot reads in percent.
+                    y=eqe * 100.0,
+                    mode='lines',
+                    name=name,
+                    hovertemplate=_hover(
+                        name, facts, 'λ = %{x:.0f} nm<br>EQE = %{y:.1f} %'
+                    ),
+                )
+            )
+            drawn += 1
+
+    if not drawn:
+        return None
+
+    fig.update_layout(
+        title='EQE — all measurements of this sample',
+        xaxis_title='Wavelength (nm)',
+        yaxis_title='EQE (%)',
+        template='plotly_white',
+        hovermode='closest',
+    )
     return fig

@@ -25,11 +25,32 @@ sample_parser_entry_point = PlainsSampleParserEntryPoint(
     # ordering a guarantee instead of a race.
     level=2,
     mainfile_name_re=r'.*\.archive\.(json|yaml|yml)$',
-    # Only *our* sample archives; the measurement, substrate and deposition
-    # archives must stay with the built-in parser at level -1.
+    # Only *our* device sample archives. The measurement and deposition archives
+    # stay with the built-in parser at level -1; substrates go one level later
+    # still, see below.
     mainfile_contents_re=(
         r'nomad_perovskite_solar_cell_sample_plains\.schema_packages\.sample\.'
         r'PerovskiteSolarCellSampleArea'
+    ),
+    mainfile_mime_re=r'.*',
+)
+
+
+substrate_parser_entry_point = PlainsSampleParserEntryPoint(
+    name='PlainsSubstrateParser',
+    description=(
+        'Processes the substrate archives the Plains app uploads. Identical to the '
+        'built-in archive parser except for its level, which defers the substrate '
+        'until the devices whose figures it mirrors have been processed.'
+    ),
+    # `SubstrateSample.normalize` copies the overview figures of every device on the
+    # substrate, and those figures only exist once the *device* has normalized. The
+    # devices are level 2, so the substrate has to come after them.
+    level=3,
+    mainfile_name_re=r'.*\.archive\.(json|yaml|yml)$',
+    mainfile_contents_re=(
+        r'nomad_perovskite_solar_cell_sample_plains\.schema_packages\.sample\.'
+        r'SubstrateSample'
     ),
     mainfile_mime_re=r'.*',
 )
