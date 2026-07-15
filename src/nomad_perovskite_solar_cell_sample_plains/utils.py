@@ -522,3 +522,53 @@ def create_eqe_overview_figure(measurements):
         hovermode='closest',
     )
     return fig
+
+
+def create_uvvis_overview_figure(measurements):
+    """Every UV-Vis transmittance spectrum of this substrate, in one plot.
+
+    UV-Vis is a film-level measurement: the transmittance describes the whole
+    substrate, not a single pixel. The spectrum lives on the baseclass's repeating
+    `measurements` subsection (`wavelength` in nm, `intensity` carrying the
+    transmittance in %).
+    """
+    fig = go.Figure()
+    drawn = 0
+
+    for index, measurement in enumerate(measurements):
+        source = _measurement_name(measurement, f'UV-Vis {index + 1}')
+        spectra = getattr(measurement, 'measurements', None) or []
+
+        for spectrum_index, spectrum in enumerate(spectra):
+            transmittance = to_array(getattr(spectrum, 'intensity', None))
+            if transmittance is None:
+                continue
+            wavelength = to_array(getattr(spectrum, 'wavelength', None), 'nm')
+            if wavelength is None or len(wavelength) != len(transmittance):
+                continue
+
+            name = source if len(spectra) == 1 else f'{source} #{spectrum_index + 1}'
+            fig.add_trace(
+                go.Scatter(
+                    x=wavelength,
+                    y=transmittance,
+                    mode='lines',
+                    name=name,
+                    hovertemplate=_hover(
+                        name, [], 'λ = %{x:.0f} nm<br>T = %{y:.1f} %'
+                    ),
+                )
+            )
+            drawn += 1
+
+    if not drawn:
+        return None
+
+    fig.update_layout(
+        title='UV-Vis — all transmittance spectra of this substrate',
+        xaxis_title='Wavelength (nm)',
+        yaxis_title='Transmittance (%)',
+        template='plotly_white',
+        hovermode='closest',
+    )
+    return fig

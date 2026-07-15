@@ -22,11 +22,14 @@ from nomad.utils import generate_entry_id
 from perovskite_solar_cell_database.schema_sections.cell import Cell
 from perovskite_solar_cell_database.schema_sections.jv import JV
 
+from baseclasses.solar_energy.uvvismeasurement import UVvisData, UVvisMeasurement
+
 from nomad_perovskite_solar_cell_sample_plains.schema_packages.sample import (
     EQE_OVERVIEW_LABEL,
     JV_OVERVIEW_LABEL,
     STABILITY_OVERVIEW_LABEL,
     STACK_FIGURE_LABEL,
+    UVVIS_OVERVIEW_LABEL,
     PerovskiteSolarCellSampleArea,
     SubstrateSample,
 )
@@ -606,3 +609,58 @@ def test_a_substrate_does_not_grow_a_solar_cell_section():
         or archive.results.properties is None
         or archive.results.properties.optoelectronic is None
     )
+
+
+# ── The substrate carries the film-level UV-Vis overview ──────────────────────
+
+
+def _uvvis_entry(name):
+    measurement = UVvisMeasurement()
+    measurement.name = name
+    measurement.measurements = [
+        UVvisData(
+            wavelength=np.linspace(300, 1100, 40) * ureg('nm'),
+            intensity=np.linspace(0.1, 85.0, 40),
+        )
+    ]
+    return measurement
+
+
+def test_the_substrate_shows_its_own_uvvis_overview(monkeypatch):
+    """UV-Vis is film-level: it describes the whole substrate, not a pixel, so the
+    substrate searches for it directly and draws one combined transmittance plot."""
+    monkeypatch.setattr(
+        'nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.search',
+        lambda **kwargs: _hits('uvvis-100', 'uvvis-150'),
+    )
+
+    class _Context:
+        def load_archive(self, entry_id, upload_id, _):
+            return type('A', (), {'data': _uvvis_entry(entry_id)})()
+
+    substrate = SubstrateSample()
+    archive = archive_for(substrate)
+    archive.metadata.main_author = User(user_id='user-1')
+    archive.m_context = _Context()
+
+    substrate.normalize(archive, LOGGER)
+
+    assert [figure.label for figure in substrate.figures] == [UVVIS_OVERVIEW_LABEL]
+    # Both films are in the one plot.
+    assert len(substrate.figures[0].figure['data']) == 2
+
+
+def test_a_substrate_without_uvvis_gets_no_uvvis_figure(monkeypatch):
+    monkeypatch.setattr(
+        'nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.search',
+        lambda **kwargs: _hits(),
+    )
+
+    substrate = SubstrateSample()
+    archive = archive_for(substrate)
+    archive.metadata.main_author = User(user_id='user-1')
+    archive.m_context = type('C', (), {'load_archive': lambda *a: None})()
+
+    substrate.normalize(archive, LOGGER)
+
+    assert not substrate.figures

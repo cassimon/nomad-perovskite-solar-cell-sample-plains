@@ -34,7 +34,9 @@ def test_substrate_and_deposition_archives_upload():
     assert deposition_archive.data.lab_id == '5ffdda0f-eeb8-4d5b-85c4-aeab273418bd_deposition'
     assert len(deposition_archive.data.samples) == 1
     assert len(deposition_archive.data.steps) == 7
-    assert deposition_archive.data.start_time.isoformat() == '2026-05-21T08:00:00+00:00'
+    # A `DepositionRoutine` is a `Process`: its start is the inherited `datetime`
+    # (only its *steps* carry a `start_time`), back-filled from the earliest step.
+    assert deposition_archive.data.datetime.isoformat() == '2026-05-21T08:00:00+00:00'
     assert deposition_archive.data.end_time.isoformat() == '2026-05-22T11:00:00+00:00'
 
 

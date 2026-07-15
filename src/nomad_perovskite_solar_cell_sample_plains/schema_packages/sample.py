@@ -15,6 +15,7 @@ from nomad.search import search, MetadataRequired
 from baseclasses.solar_energy.eqemeasurement import EQEMeasurement
 from baseclasses.solar_energy.jvmeasurement import JVMeasurement
 from baseclasses.solar_energy.mpp_tracking import MPPTracking
+from baseclasses.solar_energy.uvvismeasurement import UVvisMeasurement
 from perovskite_solar_cell_database.schema import PerovskiteDeposition, Substrate
 from perovskite_solar_cell_database.schema_sections import (
     Add,
@@ -37,6 +38,7 @@ from nomad_perovskite_solar_cell_sample_plains.utils import (
     create_eqe_overview_figure,
     create_jv_overview_figure,
     create_stability_overview_figure,
+    create_uvvis_overview_figure,
 )
 
 configuration = config.get_plugin_entry_point(
@@ -51,6 +53,7 @@ STACK_FIGURE_LABEL = 'Device stack'
 JV_OVERVIEW_LABEL = 'JV curves (all measurements)'
 STABILITY_OVERVIEW_LABEL = 'MPP tracking (all measurements)'
 EQE_OVERVIEW_LABEL = 'EQE (all measurements)'
+UVVIS_OVERVIEW_LABEL = 'UV-Vis (all films)'
 
 
 class LoadedMeasurements(NamedTuple):
@@ -443,7 +446,10 @@ class SubstrateSample(CompositeSystem, PlotSection):
 
     def normalize(self, archive, logger):
         super().normalize(archive, logger)
-        self._mirror_device_figures(archive, logger)
+        figures = self._mirror_device_figures(archive, logger)
+        figures.extend(self._uvvis_figures(archive, logger))
+        if figures:
+            self.figures = figures
 
     def _mirror_device_figures(self, archive, logger):
         """Show the overview plots of every device on this substrate, side by side.
@@ -462,7 +468,7 @@ class SubstrateSample(CompositeSystem, PlotSection):
         context = getattr(archive, 'm_context', None)
         upload_id = getattr(getattr(archive, 'metadata', None), 'upload_id', None)
         if context is None or upload_id is None or not self.cell_areas:
-            return
+            return []
 
         figures = []
         for area in self.cell_areas:
@@ -473,9 +479,74 @@ class SubstrateSample(CompositeSystem, PlotSection):
                     logger.warning(
                         f'Could not mirror the figures of a cell area: {e}', exc_info=e
                     )
+        return figures
 
-        if figures:
-            self.figures = figures
+    def _uvvis_figures(self, archive, logger):
+        """The substrate's own UV-Vis transmittance overview.
+
+        UV-Vis is film-level -- it describes the whole substrate, not a pixel -- so
+        it is searched for and drawn here rather than mirrored from a device. This
+        is the same reference search the device sample runs for its own
+        measurements, filtered to UV-Vis.
+        """
+        try:
+            measurements = self._load_uvvis_measurements(archive, logger)
+        except Exception as e:
+            if logger:
+                logger.warning(f'Could not load UV-Vis measurements: {e}', exc_info=e)
+            return []
+
+        if not measurements:
+            return []
+        try:
+            figure = create_uvvis_overview_figure(measurements)
+        except Exception as e:
+            if logger:
+                logger.warning(f'Could not build the UV-Vis overview: {e}', exc_info=e)
+            return []
+        if figure is None:
+            return []
+        return [
+            PlotlyFigure(label=UVVIS_OVERVIEW_LABEL, figure=figure.to_plotly_json())
+        ]
+
+    def _load_uvvis_measurements(self, archive, logger):
+        """Every UV-Vis measurement entry that references this substrate."""
+        if (
+            archive is None
+            or archive.m_context is None
+            or not getattr(getattr(archive, 'metadata', None), 'entry_id', None)
+        ):
+            return []
+
+        main_author = getattr(archive.metadata, 'main_author', None)
+        user_id = getattr(main_author, 'user_id', None)
+        if user_id is None:
+            return []
+
+        results = search(
+            owner='all',
+            query={'entry_references.target_entry_id': archive.metadata.entry_id},
+            pagination=MetadataPagination(page_size=100),
+            required=MetadataRequired(include=['entry_id', 'upload_id']),
+            user_id=user_id,
+        )
+
+        measurements = []
+        for hit in results.data:
+            try:
+                ref_archive = archive.m_context.load_archive(
+                    hit['entry_id'], hit['upload_id'], None
+                )
+                entry = ref_archive.data
+                if isinstance(entry, UVvisMeasurement):
+                    measurements.append(entry)
+            except Exception as e:
+                if logger:
+                    logger.warning(
+                        f'Could not load referenced entry {hit.get("entry_id")}: {e}'
+                    )
+        return measurements
 
     @staticmethod
     def _device_entry_id(area, upload_id):

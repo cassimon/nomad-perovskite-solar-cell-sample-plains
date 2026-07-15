@@ -13,10 +13,13 @@ from baseclasses.solar_energy.jvmeasurement import JVMeasurement, SolarCellJVCur
 from baseclasses.solar_energy.mpp_tracking import MPPTracking
 from nomad.units import ureg
 
+from baseclasses.solar_energy.uvvismeasurement import UVvisData, UVvisMeasurement
+
 from nomad_perovskite_solar_cell_sample_plains.utils import (
     create_eqe_overview_figure,
     create_jv_overview_figure,
     create_stability_overview_figure,
+    create_uvvis_overview_figure,
 )
 
 
@@ -189,3 +192,43 @@ def test_several_spectra_of_one_measurement_stay_apart():
 
 def test_no_spectrum_means_no_figure():
     assert create_eqe_overview_figure([EQEMeasurement()]) is None
+
+
+# ── UV-Vis ────────────────────────────────────────────────────────────────────
+
+
+def uvvis_measurement(name, *, spectra=1):
+    measurement = UVvisMeasurement()
+    measurement.name = name
+    measurement.measurements = []
+    for _ in range(spectra):
+        measurement.measurements.append(
+            UVvisData(
+                wavelength=np.linspace(300, 1100, 40) * ureg('nm'),
+                intensity=np.linspace(0.1, 85.0, 40),
+            )
+        )
+    return measurement
+
+
+def test_every_transmittance_spectrum_is_drawn_over_wavelength():
+    figure = create_uvvis_overview_figure([uvvis_measurement('film 100 uL')])
+
+    assert len(figure.data) == 1
+    assert figure.layout.xaxis.title.text == 'Wavelength (nm)'
+    assert figure.layout.yaxis.title.text == 'Transmittance (%)'
+    assert figure.data[0].name == 'film 100 uL'
+    assert max(figure.data[0].x) == pytest.approx(1100.0)
+    assert max(figure.data[0].y) == pytest.approx(85.0)
+
+
+def test_several_films_stay_apart():
+    figure = create_uvvis_overview_figure(
+        [uvvis_measurement('film A'), uvvis_measurement('film B')]
+    )
+
+    assert [trace.name for trace in figure.data] == ['film A', 'film B']
+
+
+def test_no_transmittance_means_no_figure():
+    assert create_uvvis_overview_figure([UVvisMeasurement()]) is None
