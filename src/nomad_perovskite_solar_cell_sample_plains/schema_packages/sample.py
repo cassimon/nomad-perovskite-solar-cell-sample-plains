@@ -3,36 +3,52 @@ import datetime
 import math
 from typing import NamedTuple
 
-from nomad.app.v1.models import MetadataPagination
-from nomad.config import config
-from nomad.datamodel.data import ArchiveSection
-from nomad.datamodel.metainfo.annotations import ELNAnnotation
-from nomad.datamodel.metainfo.basesections import CompositeSystem,CompositeSystemReference, Process, ProcessStep
-from nomad.datamodel.metainfo.plot import PlotSection, PlotlyFigure
-from nomad.metainfo import Datetime, MEnum, Quantity, Reference, SchemaPackage, Section, SubSection
-from nomad.search import search, MetadataRequired
-
+from baseclasses.chemical import Chemical
 from baseclasses.solar_energy.eqemeasurement import EQEMeasurement
 from baseclasses.solar_energy.jvmeasurement import JVMeasurement
 from baseclasses.solar_energy.mpp_tracking import MPPTracking
 from baseclasses.solar_energy.uvvismeasurement import UVvisMeasurement
+from baseclasses.solution import Solution
+from nomad.app.v1.models import MetadataPagination
+from nomad.config import config
+from nomad.datamodel.data import ArchiveSection
+from nomad.datamodel.metainfo.annotations import ELNAnnotation
+from nomad.datamodel.metainfo.basesections import (
+    CompositeSystem,
+    CompositeSystemReference,
+    Process,
+    ProcessStep,
+)
+from nomad.datamodel.metainfo.plot import PlotlyFigure, PlotSection
+from nomad.metainfo import (
+    Datetime,
+    MEnum,
+    Quantity,
+    Reference,
+    SchemaPackage,
+    Section,
+    SectionProxy,
+    SubSection,
+)
+from nomad.search import MetadataRequired, search
 from perovskite_solar_cell_database.schema import PerovskiteDeposition, Substrate
 from perovskite_solar_cell_database.schema_sections import (
-    Add,
-    Backcontact,
-    Cell,
     EQE,
     ETL,
     HTL,
     JV,
+    Add,
+    Backcontact,
+    Cell,
     Encapsulation,
     Module,
     Outdoor,
     Perovskite,
     Ref,
-    Stability,
     Stabilised,
+    Stability,
 )
+
 from nomad_perovskite_solar_cell_sample_plains.utils import (
     create_cell_stack_figure,
     create_dark_jv_overview_figure,
@@ -112,6 +128,21 @@ class DepositedMaterial(ArchiveSection):
     )
     supplier = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
 
+    # Navigable links to the entities this summary was built from, when the step's
+    # chemistry came from an app Solution or Material (not an inline material).
+    # Typed on the baseclasses ELN bases, so a `PlainsSolution` / `PlainsMaterial`
+    # -- both subclasses -- resolves here.
+    solution_reference = Quantity(
+        type=Reference(Solution.m_def),
+        description='The solution entity deposited in this step.',
+        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    )
+    material_reference = Quantity(
+        type=Reference(Chemical.m_def),
+        description='The material entity deposited in this step.',
+        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    )
+
 
 STEP_TYPES = MEnum(
     'Wet Deposition',
@@ -185,7 +216,27 @@ class DepositionStep(ProcessStep):
     )
     annealing_atmosphere = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
     notes = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
+
+    # The layer this step produces. The app knows both; without them the deposition
+    # entry does not record what the step was for.
+    layer_name = Quantity(
+        type=str,
+        description='Name of the layer this step deposits.',
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    layer_thickness = Quantity(
+        type=float,
+        unit='nm',
+        description='Thickness of the layer this step deposits.',
+        a_eln=ELNAnnotation(component='NumberEditQuantity', defaultDisplayUnit='nm'),
+    )
+
     material = SubSection(section_def=DepositedMaterial)
+    # The quenching applied during this step. Parsed per step by the app; it used
+    # to be written only onto the device sample's `perovskite_deposition`, so the
+    # process entry could not show which step quenched or how. `QuenchingParameters`
+    # is defined further down, hence the proxy.
+    quenching = SubSection(section_def=SectionProxy('QuenchingParameters'))
 
 
 
@@ -275,6 +326,11 @@ class AntisolventQuenchingParameters(ArchiveSection):
         type=str,
         description='PubChem CID of the antisolvent, when the lab software resolved one.',
         a_eln=ELNAnnotation(component='StringEditQuantity'),
+    )
+    media_reference = Quantity(
+        type=Reference(Solution.m_def),
+        description='The antisolvent solution entity, when it is an app solution.',
+        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
     )
     deposition_method = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
     flow_rate = Quantity(
@@ -931,7 +987,9 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
             return measurements
 
         if not self.jv:
-            from perovskite_solar_cell_database.schema_sections.jv import JV as JVSection
+            from perovskite_solar_cell_database.schema_sections.jv import (
+                JV as JVSection,
+            )
 
             self.jv = JVSection()
 
@@ -1139,11 +1197,11 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
 
     def _populate_from_mppt(self, measurement):
         """Populate the sample's `stability` and `stabilised` sections from an MPP track."""
-        from perovskite_solar_cell_database.schema_sections.stability import (
-            Stability as StabilitySection,
-        )
         from perovskite_solar_cell_database.schema_sections.stabilised import (
             Stabilised as StabilisedSection,
+        )
+        from perovskite_solar_cell_database.schema_sections.stability import (
+            Stability as StabilitySection,
         )
 
         jv = self.jv

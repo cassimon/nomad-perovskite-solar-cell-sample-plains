@@ -1,0 +1,24 @@
+data:
+  m_def: "nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.PlainsSolution"
+  name: "Perovskite ink"
+  lab_id: "sol-main"
+  datetime: "2026-03-01T09:30:00"
+  handling: "Prepared in glovebox"
+  storage:
+    - storage_condition: "N2 fridge"
+  solvent:
+    - name: "DMF"
+      chemical_2:
+        load_data: false
+        name: "DMF"
+      chemical_volume: 1.0
+  solute:
+    - name: "PbI2"
+      chemical_2:
+        load_data: false
+        pub_chem_cid: 24956
+        name: "PbI2"
+      amount_mol: 1.4
+  other_solution:
+    - name: "PbI2 stock"
+      solution_volume: 0.5

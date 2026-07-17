@@ -14,3 +14,21 @@ schema_package_entry_point = PlainsEntryPoint(
     name='Plains',
     description='Entry Point for Plains: Perovskite Solar Cell Schema Package',
 )
+
+
+class PlainsChemicalsEntryPoint(SchemaPackageEntryPoint):
+    def load(self):
+        from nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals import (
+            m_package,
+        )
+
+        return m_package
+
+
+chemicals_entry_point = PlainsChemicalsEntryPoint(
+    name='PlainsChemicals',
+    description=(
+        'Entry Point for the Plains material and solution ELN entities '
+        '(PlainsMaterial, PlainsSolution).'
+    ),
+)

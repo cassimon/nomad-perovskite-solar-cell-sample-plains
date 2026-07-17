@@ -1,0 +1,20 @@
+data:
+  m_def: "nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.PlainsMaterial"
+  name: "PbI2"
+  lab_id: "INV-PBI2"
+  cas_number: "13462-72-8"
+  molecular_mass: 461.0
+  density: 6.16
+  purity: "99.99%"
+  state_of_matter: "Solid"
+  material_category: "lead salt"
+  description: "moisture sensitive"
+  substance:
+    load_data: false
+    pub_chem_cid: 24956
+    name: "PbI2"
+    molar_mass: 461.0
+    cas_number: "13462-72-8"
+  product_info:
+    supplier: "TCI"
+    product_number: "L0279"

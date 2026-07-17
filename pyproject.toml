@@ -134,7 +134,16 @@ where = ["src"]
 schema_package_entry_point = "nomad_perovskite_solar_cell_sample_plains.schema_packages:schema_package_entry_point"
 
 
+chemicals_entry_point = "nomad_perovskite_solar_cell_sample_plains.schema_packages:chemicals_entry_point"
+
+
 sample_parser_entry_point = "nomad_perovskite_solar_cell_sample_plains.parsers:sample_parser_entry_point"
+
+
+material_parser_entry_point = "nomad_perovskite_solar_cell_sample_plains.parsers:material_parser_entry_point"
+
+
+solution_parser_entry_point = "nomad_perovskite_solar_cell_sample_plains.parsers:solution_parser_entry_point"
 
 
 substrate_parser_entry_point = "nomad_perovskite_solar_cell_sample_plains.parsers:substrate_parser_entry_point"
