@@ -16,6 +16,7 @@ from nomad.units import ureg
 from baseclasses.solar_energy.uvvismeasurement import UVvisData, UVvisMeasurement
 
 from nomad_perovskite_solar_cell_sample_plains.utils import (
+    create_dark_jv_overview_figure,
     create_eqe_overview_figure,
     create_jv_overview_figure,
     create_stability_overview_figure,
@@ -105,6 +106,41 @@ def test_nothing_to_draw_means_no_figure():
     """An empty plot is worse than no plot: the entry should not offer it at all."""
     assert create_jv_overview_figure([]) is None
     assert create_jv_overview_figure([jv_measurement('run 1')]) is None
+
+
+def test_dark_sweeps_are_kept_out_of_the_light_overview():
+    """A dark curve must never be drawn on the illuminated JV overview."""
+    figure = create_jv_overview_figure(
+        [jv_measurement('run 1', curve('RV'), curve('Dark RV', dark=True))]
+    )
+
+    assert len(figure.data) == 1
+    assert figure.data[0].name == 'RV'
+    assert 'dark scan' not in figure.data[0].hovertemplate
+    assert 'light measurements' in figure.layout.title.text
+
+
+def test_dark_overview_draws_only_the_dark_sweeps():
+    """The dark overview holds the dark curves and nothing else."""
+    figure = create_dark_jv_overview_figure(
+        [
+            jv_measurement('run 1', curve('FW'), curve('Dark FW', dark=True)),
+            jv_measurement('run 2', curve('Dark RV', dark=True)),
+        ]
+    )
+
+    assert [trace.name for trace in figure.data] == ['Dark FW', 'Dark RV']
+    assert all('dark scan' in trace.hovertemplate for trace in figure.data)
+    assert 'Dark JV' in figure.layout.title.text
+
+
+def test_dark_and_light_overviews_are_each_none_without_their_kind():
+    """Neither figure is offered when the sample has no curve of its kind."""
+    only_light = [jv_measurement('run 1', curve('RV'))]
+    only_dark = [jv_measurement('run 1', curve('Dark RV', dark=True))]
+
+    assert create_dark_jv_overview_figure(only_light) is None
+    assert create_jv_overview_figure(only_dark) is None
 
 
 # ── Stability ─────────────────────────────────────────────────────────────────

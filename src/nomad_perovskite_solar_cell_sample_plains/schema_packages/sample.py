@@ -35,6 +35,7 @@ from perovskite_solar_cell_database.schema_sections import (
 )
 from nomad_perovskite_solar_cell_sample_plains.utils import (
     create_cell_stack_figure,
+    create_dark_jv_overview_figure,
     create_eqe_overview_figure,
     create_jv_overview_figure,
     create_stability_overview_figure,
@@ -51,6 +52,7 @@ m_package = SchemaPackage()
 # them apart by these, so they are named once, here.
 STACK_FIGURE_LABEL = 'Device stack'
 JV_OVERVIEW_LABEL = 'JV curves (all measurements)'
+DARK_JV_OVERVIEW_LABEL = 'Dark JV curves (all measurements)'
 STABILITY_OVERVIEW_LABEL = 'MPP tracking (all measurements)'
 EQE_OVERVIEW_LABEL = 'EQE (all measurements)'
 UVVIS_OVERVIEW_LABEL = 'UV-Vis (all films)'
@@ -757,6 +759,13 @@ class PerovskiteSolarCellSampleArea(CompositeSystem, PlotSection):
                 lambda: create_jv_overview_figure(
                     measurements.jv, self.performance_statistics
                 ),
+                measurements.jv,
+            ),
+            (
+                # Dark sweeps get their own diagram; the builder returns None when
+                # there is no dark curve, so this figure appears only where there is.
+                DARK_JV_OVERVIEW_LABEL,
+                lambda: create_dark_jv_overview_figure(measurements.jv),
                 measurements.jv,
             ),
             (

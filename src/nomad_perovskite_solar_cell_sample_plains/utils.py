@@ -291,18 +291,38 @@ def _statistics_annotation(statistics):
     return '<br>'.join(row for row in rows if row)
 
 
-def create_jv_overview_figure(measurements, statistics=None):
-    """Every JV curve measured on this sample, in one plot.
+def _jv_curve_facts(curve, dark):
+    """The fixed per-curve facts shown in a JV trace's hover box.
 
-    Returns None when there is nothing to draw, so the caller can leave the
-    figure out entirely rather than showing an empty one.
+    A dark sweep has no PCE/Voc/Jsc/FF -- those are illuminated quantities -- so
+    for it the list collapses to the single 'dark scan' marker.
     """
-    fig = go.Figure()
-    drawn = 0
+    efficiency = to_scalar(curve.efficiency)
+    voc = to_scalar(curve.open_circuit_voltage, 'V')
+    jsc = to_scalar(curve.short_circuit_current_density, 'mA/cm**2')
+    ff = to_scalar(curve.fill_factor)
+    return [
+        'dark scan' if dark else None,
+        None if efficiency is None else f'PCE = {efficiency:.2f} %',
+        None if voc is None else f'V<sub>OC</sub> = {voc:.3f} V',
+        None if jsc is None else f'J<sub>SC</sub> = {jsc:.2f} mA/cm²',
+        None if ff is None else f'FF = {ff * 100:.1f} %',
+    ]
 
+
+def _add_jv_traces(fig, measurements, *, dark):
+    """Add one trace per JV curve of the requested kind. Returns the count added.
+
+    The split is per *curve*, on its ``dark`` flag -- not per measurement -- so a
+    file that happened to carry both an illuminated and a dark sweep still lands
+    each curve in the right figure.
+    """
+    drawn = 0
     for index, measurement in enumerate(measurements):
         source = _measurement_name(measurement, f'JV {index + 1}')
         for curve in getattr(measurement, 'jv_curve', None) or []:
+            if bool(getattr(curve, 'dark', False)) != dark:
+                continue
             voltage = to_array(curve.voltage, 'V')
             current_density = to_array(curve.current_density, 'mA/cm**2')
             if voltage is None or current_density is None:
@@ -311,20 +331,6 @@ def create_jv_overview_figure(measurements, statistics=None):
                 continue
 
             name = str(getattr(curve, 'cell_name', None) or 'Cell')
-            dark = bool(getattr(curve, 'dark', False))
-            efficiency = to_scalar(curve.efficiency)
-            voc = to_scalar(curve.open_circuit_voltage, 'V')
-            jsc = to_scalar(curve.short_circuit_current_density, 'mA/cm**2')
-            ff = to_scalar(curve.fill_factor)
-
-            facts = [
-                'dark scan' if dark else None,
-                None if efficiency is None else f'PCE = {efficiency:.2f} %',
-                None if voc is None else f'V<sub>OC</sub> = {voc:.3f} V',
-                None if jsc is None else f'J<sub>SC</sub> = {jsc:.2f} mA/cm²',
-                None if ff is None else f'FF = {ff * 100:.1f} %',
-            ]
-
             fig.add_trace(
                 go.Scatter(
                     x=voltage,
@@ -336,14 +342,28 @@ def create_jv_overview_figure(measurements, statistics=None):
                     line=dict(dash='dot', color='#909090') if dark else None,
                     hovertemplate=_hover(
                         f'{source} · {name}',
-                        facts,
+                        _jv_curve_facts(curve, dark),
                         'V = %{x:.3f} V<br>J = %{y:.2f} mA/cm²',
                     ),
                 )
             )
             drawn += 1
+    return drawn
 
-    if not drawn:
+
+def create_jv_overview_figure(measurements, statistics=None):
+    """Every *illuminated* JV curve measured on this sample, in one plot.
+
+    Dark sweeps are deliberately kept out (see `create_dark_jv_overview_figure`):
+    they share neither the shape nor the KPIs of a light sweep, and the KPI
+    statistics annotation drawn here is computed over illuminated scans only, so
+    mixing the two would misrepresent the plot.
+
+    Returns None when there is nothing to draw, so the caller can leave the
+    figure out entirely rather than showing an empty one.
+    """
+    fig = go.Figure()
+    if not _add_jv_traces(fig, measurements, dark=False):
         return None
 
     annotations = []
@@ -369,12 +389,38 @@ def create_jv_overview_figure(measurements, statistics=None):
             )
 
     fig.update_layout(
-        title='JV curves — all measurements of this sample',
+        title='JV curves — all light measurements of this sample',
         xaxis_title='Voltage (V)',
         yaxis_title='Current density (mA/cm²)',
         template='plotly_white',
         hovermode='closest',
         annotations=annotations,
+    )
+    fig.update_xaxes(zeroline=True, zerolinecolor='#c0c0c0')
+    fig.update_yaxes(zeroline=True, zerolinecolor='#c0c0c0')
+    return fig
+
+
+def create_dark_jv_overview_figure(measurements):
+    """Every *dark* JV curve measured on this sample, in its own plot.
+
+    Kept apart from the light-sweep overview so the two are never conflated: a
+    dark diode curve has no PCE/Voc/Jsc/FF and a very different J range, which
+    would distort the illuminated plot's axes were they drawn together.
+
+    Returns None when the sample has no dark sweep, so the figure is offered only
+    where there is one to show.
+    """
+    fig = go.Figure()
+    if not _add_jv_traces(fig, measurements, dark=True):
+        return None
+
+    fig.update_layout(
+        title='Dark JV curves — all dark measurements of this sample',
+        xaxis_title='Voltage (V)',
+        yaxis_title='Current density (mA/cm²)',
+        template='plotly_white',
+        hovermode='closest',
     )
     fig.update_xaxes(zeroline=True, zerolinecolor='#c0c0c0')
     fig.update_yaxes(zeroline=True, zerolinecolor='#c0c0c0')
