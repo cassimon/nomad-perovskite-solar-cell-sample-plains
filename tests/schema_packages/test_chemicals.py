@@ -41,33 +41,59 @@ def test_solution_archive_parses_components_into_the_right_buckets():
     assert type(solution).__name__ == 'PlainsSolution'
     # The batch's vial label, which is how a lab finds it again.
     assert solution.lab_id == 'PVK_2026-03-01'
-    assert solution.handling == 'Prepared in glovebox'
+    # The category, split out of `description` so the two are separately
+    # recoverable instead of one unsplittable blob.
+    assert solution.solution_type == 'perovskite precursor'
+    assert solution.handling == (
+        'Preparation: Stir at 60 C\n\nBefore use: Filter with 0.45 um PTFE'
+    )
+    assert solution.solvent_ratio == '4:1'
     assert solution.storage[0].storage_condition == 'N2 fridge'
     assert solution.properties.final_volume.to('ml').magnitude == 2.0
 
-    # A solvent carries a volume; a solute carries an amount and a strength.
-    assert [chemical.name for chemical in solution.solvent] == ['DMF']
+    # A solvent carries a volume, its recipe ratio, and its inventory label.
+    assert [chemical.name for chemical in solution.solvent] == ['DMF', 'DMSO']
     assert solution.solvent[0].chemical_volume.to('ml').magnitude == 1.6
+    assert solution.solvent[0].amount_relative == 4.0
+    assert solution.solvent[0].chemical_id == 'INV-DMF'
+    assert solution.solvent[1].amount_relative == 1.0
+
+    # A solute carries an amount and a strength.
     assert [chemical.name for chemical in solution.solute] == ['PbI2']
     assert solution.solute[0].amount_mol.to('mol').magnitude == 1.4
     assert solution.solute[0].chemical_mass.to('mg').magnitude == 922.0
     assert solution.solute[0].concentration_mass.to('mg/ml').magnitude == 461.0
     assert solution.solute[0].chemical_2.pub_chem_cid == 24956
+    assert solution.solute[0].chemical_id == 'INV-PBI2'
+
+    # A mixed-in commercial product is an additive, not a mislabelled solute.
+    assert [chemical.name for chemical in solution.additive] == ['Surfactant X']
+    assert solution.additive[0].chemical_mass.to('mg').magnitude == 5.0
+    assert solution.additive[0].chemical_id == 'INV-SURF'
 
     # A stock solution mixed in is an other_solution row, not a flattened string.
     assert [other.name for other in solution.other_solution] == ['PbI2 stock']
     assert solution.other_solution[0].solution_volume.to('ml').magnitude == 0.5
+    assert solution.other_solution[0].amount_relative == 1.0
 
 
 def test_solution_components_drive_the_composition_overview():
-    """`solute`/`solvent` rows are not `components`, and NOMAD reads the latter."""
+    """`solute`/`solvent`/`additive` rows are not `components`, NOMAD reads the latter."""
     solution = parse(str(DATA / 'solution.archive.yaml'))[0].data
 
-    assert [component.substance_name for component in solution.components] == ['PbI2']
-    component = solution.components[0]
-    assert type(component).__name__ == 'PureSubstanceComponent'
-    assert component.pure_substance.pub_chem_cid == 24956
-    assert component.pure_substance.load_data is False
+    assert [type(c).__name__ for c in solution.components] == [
+        'PureSubstanceComponent',
+        'Component',
+    ]
+    substance_component = solution.components[0]
+    assert substance_component.substance_name == 'PbI2'
+    assert substance_component.pure_substance.pub_chem_cid == 24956
+    assert substance_component.pure_substance.load_data is False
+
+    # The nested solution: name only, deliberately no `system` reference (see
+    # the fixture comment for why) -- still reconstructable via other_solution.
+    nested_component = solution.components[1]
+    assert nested_component.name == 'PbI2 stock'
 
 
 def test_material_records_the_constituents_of_a_mixture():

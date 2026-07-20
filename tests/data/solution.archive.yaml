@@ -4,7 +4,13 @@ data:
   # The vial label the user gave the batch, not an opaque row id.
   lab_id: "PVK_2026-03-01"
   datetime: "2026-03-01T09:30:00"
-  handling: "Prepared in glovebox"
+  # The app solution category, split out of `description` so the two are no
+  # longer merged and unsplittable.
+  solution_type: "perovskite precursor"
+  handling: "Preparation: Stir at 60 C\n\nBefore use: Filter with 0.45 um PTFE"
+  # Two solvents with a ratio, so `solvent_ratio` and per-row `amount_relative`
+  # both round-trip.
+  solvent_ratio: "4:1"
   storage:
     - storage_condition: "N2 fridge"
   properties:
@@ -16,6 +22,15 @@ data:
         load_data: false
         name: "DMF"
       chemical_volume: 1.6
+      amount_relative: 4.0
+      chemical_id: "INV-DMF"
+    - name: "DMSO"
+      chemical_2:
+        load_data: false
+        name: "DMSO"
+      chemical_volume: 0.4
+      amount_relative: 1.0
+      chemical_id: "INV-DMSO"
   solute:
     - name: "PbI2"
       chemical: "../upload/raw/materials_inv-pbi2.material.archive.yaml#/data"
@@ -26,11 +41,22 @@ data:
       chemical_mass: 922.0
       concentration_mass: 461.0
       amount_mol: 1.4
+      chemical_id: "INV-PBI2"
+  # A commercial product mixed in (e.g. a surfactant additive), not a solvent
+  # or a solute -- routed to its own bucket instead of a mislabelled solute.
+  additive:
+    - name: "Surfactant X"
+      chemical_2:
+        load_data: false
+        name: "Surfactant X"
+      chemical_mass: 5.0
+      chemical_id: "INV-SURF"
   other_solution:
     - name: "PbI2 stock"
       solution_volume: 0.5
-  # `solute`/`solvent` rows are not `components` in baseclasses, and it is
-  # `components` that NOMAD's composition overview reads.
+      amount_relative: 1.0
+  # `solute`/`solvent`/`additive` rows are not `components` in baseclasses, and
+  # it is `components` that NOMAD's composition overview reads.
   components:
     - m_def: "nomad.datamodel.metainfo.basesections.v1.PureSubstanceComponent"
       name: "PbI2"
@@ -42,3 +68,11 @@ data:
         load_data: false
         name: "PbI2"
         pub_chem_cid: 24956
+    # A nested solution mixed in. Deliberately the plain base `Component`, not
+    # `SystemComponent`: `CompositeSystem.normalize` dereferences a
+    # `SystemComponent.system` reference with no guard, and a same-upload
+    # cross-entry reference is not guaranteed resolved yet when that runs. The
+    # nested solution is still fully reconstructable via the `other_solution`
+    # row above (name + volume + `amount_relative`).
+    - m_def: "nomad.datamodel.metainfo.basesections.v1.Component"
+      name: "PbI2 stock"

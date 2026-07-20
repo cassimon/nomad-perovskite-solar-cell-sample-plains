@@ -109,8 +109,8 @@ class PlainsSolution(Solution):
     `additive` rows (each referencing a `Chemical` entry, with volume/mass/mol
     amounts), `other_solution` rows referencing another `Solution` entry (the
     stock-solution case), `preparation`, `storage`, and the `datetime` creation
-    timestamp. Only the app's free-text handling instructions have no home on the
-    base, so they are added here.
+    timestamp. Only the app's free-text handling instructions and its solution
+    category have no home on the base, so they are added here.
     """
 
     m_def = Section(
@@ -121,6 +121,7 @@ class PlainsSolution(Solution):
                     'name',
                     'lab_id',
                     'datetime',
+                    'solution_type',
                     'handling',
                     'solvent_ratio',
                     'solute',
@@ -136,6 +137,14 @@ class PlainsSolution(Solution):
         type=str,
         description='Handling instructions recorded in the app (free text).',
         a_eln=ELNAnnotation(component='RichTextEditQuantity'),
+    )
+    solution_type = Quantity(
+        type=str,
+        description=(
+            'The app solution category (e.g. "perovskite precursor", '
+            '"n-type (ETL)").'
+        ),
+        a_eln=ELNAnnotation(component='StringEditQuantity'),
     )
 
 
