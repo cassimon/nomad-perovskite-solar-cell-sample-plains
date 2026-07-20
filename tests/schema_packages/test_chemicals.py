@@ -39,17 +39,46 @@ def test_solution_archive_parses_components_into_the_right_buckets():
     solution = parse(str(DATA / 'solution.archive.yaml'))[0].data
 
     assert type(solution).__name__ == 'PlainsSolution'
-    assert solution.lab_id == 'sol-main'
+    # The batch's vial label, which is how a lab finds it again.
+    assert solution.lab_id == 'PVK_2026-03-01'
     assert solution.handling == 'Prepared in glovebox'
     assert solution.storage[0].storage_condition == 'N2 fridge'
+    assert solution.properties.final_volume.to('ml').magnitude == 2.0
 
-    # A solvent carries a volume; a solute carries a molar amount.
+    # A solvent carries a volume; a solute carries an amount and a strength.
     assert [chemical.name for chemical in solution.solvent] == ['DMF']
-    assert solution.solvent[0].chemical_volume.to('ml').magnitude == 1.0
+    assert solution.solvent[0].chemical_volume.to('ml').magnitude == 1.6
     assert [chemical.name for chemical in solution.solute] == ['PbI2']
     assert solution.solute[0].amount_mol.to('mol').magnitude == 1.4
+    assert solution.solute[0].chemical_mass.to('mg').magnitude == 922.0
+    assert solution.solute[0].concentration_mass.to('mg/ml').magnitude == 461.0
     assert solution.solute[0].chemical_2.pub_chem_cid == 24956
 
     # A stock solution mixed in is an other_solution row, not a flattened string.
     assert [other.name for other in solution.other_solution] == ['PbI2 stock']
     assert solution.other_solution[0].solution_volume.to('ml').magnitude == 0.5
+
+
+def test_solution_components_drive_the_composition_overview():
+    """`solute`/`solvent` rows are not `components`, and NOMAD reads the latter."""
+    solution = parse(str(DATA / 'solution.archive.yaml'))[0].data
+
+    assert [component.substance_name for component in solution.components] == ['PbI2']
+    component = solution.components[0]
+    assert type(component).__name__ == 'PureSubstanceComponent'
+    assert component.pure_substance.pub_chem_cid == 24956
+    assert component.pure_substance.load_data is False
+
+
+def test_material_records_the_constituents_of_a_mixture():
+    """A mixture has no CID of its own, so each constituent gets a section."""
+    material = parse(str(DATA / 'mixture.archive.yaml'))[0].data
+
+    assert type(material).__name__ == 'PlainsMaterial'
+    assert material.lab_id == 'INV-PEDOT'
+    assert [
+        substance.pub_chem_cid for substance in material.component_substances
+    ] == [61503, 62717]
+    assert all(
+        substance.load_data is False for substance in material.component_substances
+    )

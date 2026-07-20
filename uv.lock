@@ -1117,7 +1117,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://gitlab.mpcdf.mpg.de/api/v4/projects/2187/packages/pypi/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -3108,7 +3108,7 @@ wheels = [
 [[package]]
 name = "nomad-baseclasses"
 version = "1.0.0"
-source = { git = "https://github.com/nomad-hzb/nomad-baseclasses.git?rev=main#9cd08ad4a03d661d98f847a52dbd3ebb628a4270" }
+source = { git = "https://github.com/nomad-hzb/nomad-baseclasses.git?rev=6ad81b3a82e5c02a4943dc213430d91538362df9#6ad81b3a82e5c02a4943dc213430d91538362df9" }
 dependencies = [
     { name = "chardet" },
     { name = "hdf5plugin" },
@@ -3234,7 +3234,7 @@ requires-dist = [
     { name = "mkdocs", marker = "extra == 'dev'" },
     { name = "mkdocs-click", marker = "extra == 'dev'" },
     { name = "mkdocs-material", marker = "extra == 'dev'", specifier = "==8.1.1" },
-    { name = "nomad-baseclasses", git = "https://github.com/nomad-hzb/nomad-baseclasses.git?rev=main" },
+    { name = "nomad-baseclasses", git = "https://github.com/nomad-hzb/nomad-baseclasses.git?rev=6ad81b3a82e5c02a4943dc213430d91538362df9" },
     { name = "nomad-lab", specifier = ">=1.4.1" },
     { name = "perovskite-solar-cell-database", git = "https://github.com/FAIRmat-NFDI/nomad-perovskite-solar-cells-database.git?rev=v1.0.0" },
     { name = "pymdown-extensions", marker = "extra == 'dev'" },

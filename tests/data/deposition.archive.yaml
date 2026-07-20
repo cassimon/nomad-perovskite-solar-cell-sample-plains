@@ -11,9 +11,7 @@ data:
     timestamp: "2026-05-21T08:00:00"
     annealing_time: 2.0
     duration: 2.0
-    material:
-      name: "Isopropanol"
-      supplier: "Sigma"
+    chemical: "../upload/raw/materials_isopropanol.material.archive.yaml#/data"
   - step_index: 2
     step_type: "Wet Deposition"
     name: "Spin Coating"
@@ -23,9 +21,8 @@ data:
     annealing_time: 30.0
     duration: 30.0
     annealing_temperature: 130.0
-    material:
-      name: "Meo-2Pacz in Ethanol 05/20/2026"
-      supplier: "Unknown"
+    solution: "../upload/raw/solutions_meo2pacz.solution.archive.yaml#/data"
+    solution_concentration: 0.001
   - step_index: 3
     step_type: "Wet Deposition"
     name: "Spin Coating"
@@ -36,9 +33,8 @@ data:
     annealing_time: 25.0
     duration: 25.0
     annealing_temperature: 130.0
-    material:
-      name: "Perovskite Solution"
-      supplier: "Unknown"
+    solution: "../upload/raw/solutions_pvk.solution.archive.yaml#/data"
+    solution_concentration: 1.4
   - step_index: 4
     step_type: "Surface Modification"
     name: "Spin Coating"
@@ -48,9 +44,7 @@ data:
     annealing_time: 50.0
     duration: 50.0
     annealing_temperature: 110.0
-    material:
-      name: "PEACl in Isopropanol 05/20/2026"
-      supplier: "Unknown"
+    chemical: "../upload/raw/materials_peacl.material.archive.yaml#/data"
   - step_index: 5
     step_type: "Wet Deposition"
     name: "Spin Coating"
@@ -59,9 +53,7 @@ data:
     annealing_time: 5.0
     duration: 5.0
     annealing_temperature: 100.0
-    material:
-      name: "PCBM in CB"
-      supplier: "Unknown"
+    chemical: "../upload/raw/materials_pcbm.material.archive.yaml#/data"
   - step_index: 6
     step_type: "Wet Deposition"
     name: "Spin Coating"
@@ -71,16 +63,12 @@ data:
     annealing_time: 5.0
     duration: 5.0
     annealing_temperature: 115.0
-    material:
-      name: "Something in Isopropanol 05/20/2026"
-      supplier: "Unknown"
+    chemical: "../upload/raw/materials_something.material.archive.yaml#/data"
   - step_index: 7
     step_type: "Dry Deposition"
     name: "Evaporation"
     timestamp: "2026-05-22T11:00:00"
-    material:
-      name: "Au"
-      supplier: "Sigma"
+    chemical: "../upload/raw/materials_au.material.archive.yaml#/data"
   start_time: "2026-05-21T08:00:00"
   end_time: "2026-05-22T11:00:00"
   datetime: "2026-05-21T08:00:00"

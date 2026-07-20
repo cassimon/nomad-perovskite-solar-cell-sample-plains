@@ -1,24 +1,44 @@
 data:
   m_def: "nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.PlainsSolution"
   name: "Perovskite ink"
-  lab_id: "sol-main"
+  # The vial label the user gave the batch, not an opaque row id.
+  lab_id: "PVK_2026-03-01"
   datetime: "2026-03-01T09:30:00"
   handling: "Prepared in glovebox"
   storage:
     - storage_condition: "N2 fridge"
+  properties:
+    final_volume: 2.0
   solvent:
     - name: "DMF"
+      chemical: "../upload/raw/materials_inv-dmf.material.archive.yaml#/data"
       chemical_2:
         load_data: false
         name: "DMF"
-      chemical_volume: 1.0
+      chemical_volume: 1.6
   solute:
     - name: "PbI2"
+      chemical: "../upload/raw/materials_inv-pbi2.material.archive.yaml#/data"
       chemical_2:
         load_data: false
         pub_chem_cid: 24956
         name: "PbI2"
+      chemical_mass: 922.0
+      concentration_mass: 461.0
       amount_mol: 1.4
   other_solution:
     - name: "PbI2 stock"
       solution_volume: 0.5
+  # `solute`/`solvent` rows are not `components` in baseclasses, and it is
+  # `components` that NOMAD's composition overview reads.
+  components:
+    - m_def: "nomad.datamodel.metainfo.basesections.v1.PureSubstanceComponent"
+      name: "PbI2"
+      substance_name: "PbI2"
+      pure_substance:
+        # `pure_substance` is typed as the plain PureSubstanceSection, which has
+        # no CID; the PubChem subclass has to be named explicitly.
+        m_def: "baseclasses.PubChemPureSubstanceSectionCustom"
+        load_data: false
+        name: "PbI2"
+        pub_chem_cid: 24956

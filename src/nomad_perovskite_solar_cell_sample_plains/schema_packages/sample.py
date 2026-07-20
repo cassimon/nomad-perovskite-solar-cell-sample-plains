@@ -114,36 +114,6 @@ class DocumentFile(ArchiveSection):
     title = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
 
 
-class DepositedMaterial(ArchiveSection):
-    name = Quantity(
-        type=str,
-        description='Name of the material or solution.',
-        a_eln=ELNAnnotation(component='StringEditQuantity'),
-    )
-    concentration = Quantity(
-        type=float,
-        unit='mol/l',
-        description='Concentration of the solution if applicable.',
-        a_eln=ELNAnnotation(component='NumberEditQuantity', defaultDisplayUnit='mol/l'),
-    )
-    supplier = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))
-
-    # Navigable links to the entities this summary was built from, when the step's
-    # chemistry came from an app Solution or Material (not an inline material).
-    # Typed on the baseclasses ELN bases, so a `PlainsSolution` / `PlainsMaterial`
-    # -- both subclasses -- resolves here.
-    solution_reference = Quantity(
-        type=Reference(Solution.m_def),
-        description='The solution entity deposited in this step.',
-        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
-    )
-    material_reference = Quantity(
-        type=Reference(Chemical.m_def),
-        description='The material entity deposited in this step.',
-        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
-    )
-
-
 STEP_TYPES = MEnum(
     'Wet Deposition',
     'Dry Deposition',
@@ -231,7 +201,32 @@ class DepositionStep(ProcessStep):
         a_eln=ELNAnnotation(component='NumberEditQuantity', defaultDisplayUnit='nm'),
     )
 
-    material = SubSection(section_def=DepositedMaterial)
+    # What this step deposits. These used to be a `DepositedMaterial` summary
+    # subsection -- a name, a supplier string and a concentration -- which
+    # duplicated, badly, what the material and solution entries say properly:
+    # nothing ever read it, and the app had no inventory entities to point it at.
+    # Now every chemical the Chemicals step labels becomes a `PlainsMaterial` /
+    # `PlainsSolution` entry, so the step simply references it. Typed on the
+    # baseclasses ELN bases, so those subclasses resolve here.
+    solution = Quantity(
+        type=Reference(Solution.m_def),
+        description='The solution deposited in this step.',
+        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    )
+    chemical = Quantity(
+        type=Reference(Chemical.m_def),
+        description='The chemical deposited in this step.',
+        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    )
+    # Kept flat on the step rather than on the solution: the concentration is a
+    # property of what was deposited here, not of the batch on the shelf.
+    solution_concentration = Quantity(
+        type=float,
+        unit='mol/l',
+        description='Molar concentration of the solution deposited in this step.',
+        a_eln=ELNAnnotation(component='NumberEditQuantity', defaultDisplayUnit='mol/l'),
+    )
+
     # The quenching applied during this step. Parsed per step by the app; it used
     # to be written only onto the device sample's `perovskite_deposition`, so the
     # process entry could not show which step quenched or how. `QuenchingParameters`
@@ -327,9 +322,18 @@ class AntisolventQuenchingParameters(ArchiveSection):
         description='PubChem CID of the antisolvent, when the lab software resolved one.',
         a_eln=ELNAnnotation(component='StringEditQuantity'),
     )
-    media_reference = Quantity(
+    # An antisolvent is usually a pure chemical (chlorobenzene and friends), so
+    # the solution-only reference this section started with could not link the
+    # common case. `aliases` keeps archives uploaded under the old name readable.
+    media_solution = Quantity(
         type=Reference(Solution.m_def),
+        aliases=['media_reference'],
         description='The antisolvent solution entity, when it is an app solution.',
+        a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
+    )
+    media_chemical = Quantity(
+        type=Reference(Chemical.m_def),
+        description='The antisolvent chemical entity, when it is a pure chemical.',
         a_eln=ELNAnnotation(component='ReferenceEditQuantity'),
     )
     deposition_method = Quantity(type=str, a_eln=ELNAnnotation(component='StringEditQuantity'))

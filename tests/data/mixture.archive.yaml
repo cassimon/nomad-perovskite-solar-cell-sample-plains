@@ -1,0 +1,16 @@
+data:
+  m_def: "nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.PlainsMaterial"
+  name: "PEDOT:PSS"
+  lab_id: "INV-PEDOT"
+  material_category: "p-type (HTL)"
+  purity: "99.9%"
+  # A mixture has no single PubChem identity, so `substance` stays empty and the
+  # constituents the app resolved are listed instead.
+  component_substances:
+    - load_data: false
+      pub_chem_cid: 61503
+    - load_data: false
+      pub_chem_cid: 62717
+  product_info:
+    supplier: "Heraeus"
+    product_number: "AI4083"

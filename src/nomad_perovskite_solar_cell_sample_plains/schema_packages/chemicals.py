@@ -61,6 +61,7 @@ class PlainsMaterial(Chemical):
                     'molecular_mass',
                     'density',
                     'state_of_matter',
+                    'component_substances',
                 ]
             )
         ),
@@ -86,6 +87,14 @@ class PlainsMaterial(Chemical):
     substance = SubSection(
         section_def=PubChemPureSubstanceSectionCustom,
         description='PubChem identity of the material (CID and derived identifiers).',
+    )
+    component_substances = SubSection(
+        section_def=PubChemPureSubstanceSectionCustom,
+        repeats=True,
+        description=(
+            'PubChem identities of the constituents, for a material that is a '
+            'mixture (PEDOT:PSS and the like) and so has no single CID of its own.'
+        ),
     )
     product_info = SubSection(
         section_def=ProductInfo,
