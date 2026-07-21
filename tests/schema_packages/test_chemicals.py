@@ -96,15 +96,51 @@ def test_solution_components_drive_the_composition_overview():
     assert nested_component.name == 'PbI2 stock'
 
 
+def test_solution_composition_table_gathers_every_row_with_its_concentration():
+    """The Overview "Materials" table shows the concentrations `components` omit."""
+    from nomad_perovskite_solar_cell_sample_plains.utils import (
+        create_solution_composition_figure,
+    )
+
+    solution = parse(str(DATA / 'solution.archive.yaml'))[0].data
+    figure = create_solution_composition_figure(solution)
+
+    table = figure.data[0]
+    assert table.type == 'table'
+    names, roles, concentrations, amounts = table.cells.values
+
+    # Every solute / solvent / additive / other_solution row, in that order.
+    assert list(names) == ['PbI2', 'DMF', 'DMSO', 'Surfactant X', 'PbI2 stock']
+    assert list(roles) == ['Solute', 'Solvent', 'Solvent', 'Additive', 'Solution']
+    # The recorded concentration is shown where present, blank otherwise.
+    assert concentrations[0] == '461 mg/ml'
+    assert concentrations[1] == ''
+    # The first recorded absolute amount is shown per row.
+    assert list(amounts) == ['922 mg', '1.6 ml', '0.4 ml', '5 mg', '0.5 ml']
+
+
+def test_solution_composition_table_is_none_without_components():
+    """An empty solution shows no empty card."""
+    from nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals import (
+        PlainsSolution,
+    )
+    from nomad_perovskite_solar_cell_sample_plains.utils import (
+        create_solution_composition_figure,
+    )
+
+    assert create_solution_composition_figure(PlainsSolution()) is None
+
+
 def test_material_records_the_constituents_of_a_mixture():
     """A mixture has no CID of its own, so each constituent gets a section."""
     material = parse(str(DATA / 'mixture.archive.yaml'))[0].data
 
     assert type(material).__name__ == 'PlainsMaterial'
     assert material.lab_id == 'INV-PEDOT'
-    assert [
-        substance.pub_chem_cid for substance in material.component_substances
-    ] == [61503, 62717]
+    assert [substance.pub_chem_cid for substance in material.component_substances] == [
+        61503,
+        62717,
+    ]
     assert all(
         substance.load_data is False for substance in material.component_substances
     )

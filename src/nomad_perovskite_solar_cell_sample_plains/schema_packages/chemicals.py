@@ -27,7 +27,12 @@ from baseclasses.product_info import ProductInfo
 from baseclasses.solution import Solution
 from nomad.config import config
 from nomad.datamodel.metainfo.annotations import ELNAnnotation
+from nomad.datamodel.metainfo.plot import PlotlyFigure, PlotSection
 from nomad.metainfo import Quantity, SchemaPackage, Section, SubSection
+
+from nomad_perovskite_solar_cell_sample_plains.utils import (
+    create_solution_composition_figure,
+)
 
 configuration = config.get_plugin_entry_point(
     'nomad_perovskite_solar_cell_sample_plains.schema_packages:chemicals_entry_point'
@@ -81,7 +86,9 @@ class PlainsMaterial(Chemical):
         type=float,
         unit='g/cm**3',
         description='Mass density.',
-        a_eln=ELNAnnotation(component='NumberEditQuantity', defaultDisplayUnit='g/cm**3'),
+        a_eln=ELNAnnotation(
+            component='NumberEditQuantity', defaultDisplayUnit='g/cm**3'
+        ),
     )
 
     substance = SubSection(
@@ -102,7 +109,7 @@ class PlainsMaterial(Chemical):
     )
 
 
-class PlainsSolution(Solution):
+class PlainsSolution(Solution, PlotSection):
     """A solution mixed in the Plains lab (a `LabSolution` or a process recipe).
 
     `Solution` already carries everything the app records: `solvent` / `solute` /
@@ -111,6 +118,10 @@ class PlainsSolution(Solution):
     stock-solution case), `preparation`, `storage`, and the `datetime` creation
     timestamp. Only the app's free-text handling instructions and its solution
     category have no home on the base, so they are added here.
+
+    Being a `PlotSection`, it also draws a "Materials" table on the Overview: the
+    per-row concentrations and amounts live on `solute`/`solvent`/`additive`, which
+    are not `components`, so NOMAD's built-in composition card never shows them.
     """
 
     m_def = Section(
@@ -141,11 +152,23 @@ class PlainsSolution(Solution):
     solution_type = Quantity(
         type=str,
         description=(
-            'The app solution category (e.g. "perovskite precursor", '
-            '"n-type (ETL)").'
+            'The app solution category (e.g. "perovskite precursor", "n-type (ETL)").'
         ),
         a_eln=ELNAnnotation(component='StringEditQuantity'),
     )
+
+    def normalize(self, archive, logger):
+        # Built from the raw solute/solvent/additive/other_solution rows, before
+        # `super().normalize()`, so the Materials table is drawn even if a base
+        # normalizer trips over an unresolved cross-entry reference. `PlotSection`
+        # in the base chain leaves these figures alone (it only clears `figures`
+        # when the section carries plotly annotations, which this one does not).
+        figure = create_solution_composition_figure(self)
+        if figure is not None:
+            self.figures = [
+                PlotlyFigure(label='Materials', figure=figure.to_plotly_json())
+            ]
+        super().normalize(archive, logger)
 
 
 m_package.__init_metainfo__()

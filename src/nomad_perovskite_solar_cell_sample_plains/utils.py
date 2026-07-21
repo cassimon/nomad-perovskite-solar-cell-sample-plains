@@ -218,6 +218,140 @@ def create_cell_stack_figure(  # noqa: PLR0913
     return fig
 
 
+# ── Solution composition table ────────────────────────────────────────────────
+#
+# A solution's `solute` / `solvent` / `additive` / `other_solution` rows carry the
+# concentrations and amounts, but they are not `components`, so NOMAD's Overview
+# composition card never shows them. This gathers every row into one table drawn
+# on the solution Overview, so the recipe can be read at a glance.
+
+# (subsection attribute on Solution, role label shown in the table).
+_COMPOSITION_ROLES = (
+    ('solute', 'Solute'),
+    ('solvent', 'Solvent'),
+    ('additive', 'Additive'),
+    ('other_solution', 'Solution'),
+)
+
+
+def _safe_name(obj):
+    """`obj.name`, or None -- guarded so an unresolved reference proxy never raises.
+
+    A `chemical` / `solution` field is a cross-entry `Reference`; touching it forces
+    a proxy resolve that fails outside a full upload context (and may be unresolved
+    mid-processing). The table must never break over a name, so failures are None.
+    """
+    if obj is None:
+        return None
+    try:
+        return getattr(obj, 'name', None)
+    except Exception:
+        return None
+
+
+def _row_display_name(row):
+    """Best clean human-readable name for a component row.
+
+    The verified `chemical_2` PubChem section (a local subsection, always safe to
+    read) is preferred: it keeps a clean name, whereas baseclasses normalizes the
+    row's own `name` to include an amount (e.g. "PbI2 922.0"). The referenced
+    material / solution name and the row `name` are guarded fallbacks.
+    """
+    return (
+        _safe_name(getattr(row, 'chemical_2', None))
+        or _safe_name(getattr(row, 'chemical', None))
+        or _safe_name(getattr(row, 'solution', None))
+        or getattr(row, 'name', None)
+        or 'Unnamed'
+    )
+
+
+def _format_quantity(value, display_unit, decimals=4):
+    """Format a pint quantity in `display_unit`, or '' when the field is unset.
+
+    Plain (unitless) values are formatted as-is; this is only reached for fields
+    that are declared with a unit, so the `.to(...)` path is the normal one.
+    """
+    if value is None:
+        return ''
+    try:
+        magnitude = value.to(display_unit).magnitude
+    except AttributeError:
+        return f'{value:.{decimals}g}'
+    return f'{magnitude:.{decimals}g} {display_unit}'
+
+
+def _concentration_text(row):
+    """The first recorded concentration on the row, formatted; '' if none."""
+    for attr, unit in (
+        ('concentration_mass', 'mg/ml'),
+        ('concentration_mol', 'mmol/ml'),
+        ('concentration_vol', 'ul/ml'),
+    ):
+        text = _format_quantity(getattr(row, attr, None), unit)
+        if text:
+            return text
+    return ''
+
+
+def _amount_text(row):
+    """The first recorded absolute amount on the row, else the relative ratio."""
+    for attr, unit in (
+        ('chemical_mass', 'mg'),
+        ('chemical_volume', 'ml'),
+        ('amount_mol', 'mol'),
+        ('solution_volume', 'ml'),
+    ):
+        text = _format_quantity(getattr(row, attr, None), unit)
+        if text:
+            return text
+    relative = getattr(row, 'amount_relative', None)
+    if relative is not None:
+        return f'{relative:.4g} (rel.)'
+    return ''
+
+
+def create_solution_composition_figure(solution):
+    """A Plotly table of every component of `solution` with its concentration.
+
+    Returns None when the solution has no component rows, so an empty solution
+    shows no empty card (matching the other overview-figure helpers).
+    """
+    names, roles, concentrations, amounts = [], [], [], []
+    for attr, role in _COMPOSITION_ROLES:
+        for row in getattr(solution, attr, None) or []:
+            names.append(_row_display_name(row))
+            roles.append(role)
+            concentrations.append(_concentration_text(row))
+            amounts.append(_amount_text(row))
+    if not names:
+        return None
+
+    fig = go.Figure(
+        go.Table(
+            columnwidth=[3, 2, 3, 2],
+            header=dict(
+                values=[
+                    '<b>Material</b>',
+                    '<b>Role</b>',
+                    '<b>Concentration</b>',
+                    '<b>Amount</b>',
+                ],
+                align='left',
+            ),
+            cells=dict(
+                values=[names, roles, concentrations, amounts],
+                align='left',
+            ),
+        )
+    )
+    fig.update_layout(
+        margin=dict(r=10, l=10, b=10, t=10),
+        height=min(600, 40 + 30 * len(names)),
+    )
+    return fig
+
+
 # ── Overview figures ─────────────────────────────────────────────────────────
 #
 # One figure per measurement kind, holding *every* measurement of that kind made
@@ -600,9 +734,7 @@ def create_uvvis_overview_figure(measurements):
                     y=transmittance,
                     mode='lines',
                     name=name,
-                    hovertemplate=_hover(
-                        name, [], 'λ = %{x:.0f} nm<br>T = %{y:.1f} %'
-                    ),
+                    hovertemplate=_hover(name, [], 'λ = %{x:.0f} nm<br>T = %{y:.1f} %'),
                 )
             )
             drawn += 1
